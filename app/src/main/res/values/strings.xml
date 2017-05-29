@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">OneRing</string>
+
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+
+    <string name="action_settings">Settings</string>
+    <string name="tools">Tools</string>
+    <string name="communicate">Communicate</string>
+    <string name="Log">Gallery</string>
+    <string name="Location">MyLocation</string>
+    <string name="send">Send to primary contact</string>
+    <string name="share">Share</string>
+    <string name="Filter">Slideshow</string>
+    <string name="twitter_account">saffih</string>
+    <string name="title_activity_location">My location</string>
+    <string name="title_activity_settings">Settings</string>
+
+    <!-- Strings related to Settings -->
+
+    <!-- Example General settings -->
+    <string name="pref_header_contacts">Contacts</string>
+
+    <string name="pref_title_allowed_whitelist">Filter unlisted queries</string>
+    <string name="pref_description_allowed_whitelist">List of contacts that are allowed to query the location by sms</string>
+    <string name="pref_allow_default_value">Please add number</string>
+
+</resources>

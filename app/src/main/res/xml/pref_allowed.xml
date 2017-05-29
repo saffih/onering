@@ -1,0 +1,7 @@
+<EditTextPreference xmlns:android="http://schemas.android.com/apk/res/android"
+    android:allowUndo="true"
+    android:defaultValue="@string/pref_allow_default_value"
+    android:inputType="phone"
+    android:maxLines="1"
+    android:selectAllOnFocus="true"
+    android:singleLine="true" />
