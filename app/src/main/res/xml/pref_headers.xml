@@ -6,5 +6,9 @@
         android:fragment="saffih.onering.settings.Fragments$GeneralPreferenceFragment"
         android:icon="@drawable/ic_info_black_24dp"
         android:title="@string/pref_header_contacts" />
+    <header
+        android:fragment="saffih.onering.settings.Fragments$OptionsPreferenceFragment"
+        android:icon="@drawable/ic_work_black_24dp"
+        android:title="@string/pref_header_options" />
 
 </preference-headers>

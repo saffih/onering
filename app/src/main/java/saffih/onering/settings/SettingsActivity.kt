@@ -11,7 +11,6 @@ import android.app.Activity.RESULT_OK
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.preference.Preference
@@ -29,6 +28,7 @@ import saffih.elmdroid.service.client.MService
 import saffih.onering.MainMsgApi
 import saffih.onering.R
 import saffih.onering.service.MainService
+import saffih.onering.service.phoneFormat
 import saffih.onering.service.toApi
 import saffih.onering.service.toMessage
 import saffih.onering.settings.allowed.ElmPreferenceSettings
@@ -168,7 +168,7 @@ class AppSettings(override val me: Activity) : ElmBase<Model, Msg>(me) {
 
                     // Retrieve the phone number from the NUMBER column
                     val column = cursor.getColumnIndex(PHONE_NUMBER)
-                    val number = cursor.getString(column)
+                    val number = cursor.getString(column).phoneFormat()
                     dispatch(Msg.Child.Allowed(AllowedMsg.add(number)))
                 } else {
                     dispatch(Msg.Child.Allowed(AllowedMsg.add("type a number")))
@@ -249,6 +249,7 @@ class SettingsActivity : AppCompatPreferenceActivity() {
     override fun isValidFragment(fragmentName: String): Boolean {
         return PreferenceFragment::class.java.name == fragmentName
                 || Fragments.GeneralPreferenceFragment::class.java.name == fragmentName
+                || Fragments.OptionsPreferenceFragment::class.java.name == fragmentName
 //                || Fragments.DataSyncPreferenceFragment::class.java.name == fragmentName
 //                || Fragments.NotificationPreferenceFragment::class.java.name == fragmentName
     }
@@ -282,7 +283,9 @@ class Fragments {
         // The request code
         // Show user only contacts w/ phone numbers
         fun pickContact() {
-            val pickContactIntent = Intent(Intent.ACTION_PICK, Uri.parse("content://contacts"))
+            val uri = ContactsContract.Contacts.CONTENT_URI
+            val pickContactIntent = Intent(Intent.ACTION_PICK, uri)
+
             pickContactIntent.type = ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE // Show user only contacts w/ phone numbers
             activity.startActivityForResult(pickContactIntent, SettingsActionResult.PICK_ALLOWED_CONTACT_REQUEST.ordinal)
         }
@@ -300,6 +303,30 @@ class Fragments {
 
             val msg = Msg.Init.Allowed(this)
             app.dispatch(msg)
+        }
+
+        override fun onOptionsItemSelected(item: MenuItem): Boolean {
+            val id = item.itemId
+            if (id == android.R.id.home) {
+                startActivity(Intent(activity, SettingsActivity::class.java))
+                return true
+            }
+            return super.onOptionsItemSelected(item)
+        }
+    }
+
+
+    @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+    class OptionsPreferenceFragment : PreferenceFragment() {
+        override fun onPreferenceTreeClick(preferenceScreen: PreferenceScreen?, preference: Preference?): Boolean {
+            return super.onPreferenceTreeClick(preferenceScreen, preference)
+        }
+
+        override fun onCreate(savedInstanceState: Bundle?) {
+            super.onCreate(savedInstanceState)
+            val app = (activity as SettingsActivity).app
+            addPreferencesFromResource(R.xml.pref_options)
+            setHasOptionsMenu(true)
         }
 
         override fun onOptionsItemSelected(item: MenuItem): Boolean {

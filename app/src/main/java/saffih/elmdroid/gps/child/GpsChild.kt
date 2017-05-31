@@ -200,7 +200,9 @@ open class LocationAdapter(val locationManager: LocationManager) : LocationListe
         val minDistance: Float = 10.toFloat()
         locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER, minTime, minDistance, this)
-        track.add(this)
+        synchronized(track) {
+            track.add(this)
+        }
     }
 
     operator fun invoke() {
@@ -209,7 +211,7 @@ open class LocationAdapter(val locationManager: LocationManager) : LocationListe
 
     fun unregister() {
         locationManager.removeUpdates(this)
-        track.remove(this)
+        synchronized(track) { track.remove(this) }
     }
 
 
@@ -219,7 +221,7 @@ open class LocationAdapter(val locationManager: LocationManager) : LocationListe
         }
 
         private val track = mutableSetOf<LocationAdapter>()
-        fun unregisterAll() = track.asIterable().forEach { it.unregister() }
+        fun unregisterAll() = track.toList().forEach { it.unregister() }
     }
 }
 

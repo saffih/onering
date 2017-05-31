@@ -11,6 +11,7 @@ import android.preference.PreferenceFragment
 import saffih.elmdroid.ElmChild
 import saffih.elmdroid.Que
 import saffih.onering.R
+import saffih.onering.service.phoneFormat
 import saffih.onering.service.updateAllowedList
 import saffih.tools.EditTextPrefBuilder
 
@@ -76,11 +77,21 @@ abstract class ElmPreferenceSettings(val me: Activity) : ElmChild<Model, Msg>() 
 
         }
         checkView(setup, model, pre) {
-            val iM = maxOf(model.allowed.lst.size, pre?.allowed?.lst?.size ?: 0)
+            val pre_size = pre?.allowed?.lst?.size ?: 0
+            val size = model.allowed.lst.size
+            val iM = maxOf(size, pre_size)
             (0..iM - 1).forEach {
                 val m = model.allowed.lst.getOrNull(it)
                 val other = pre?.allowed?.lst?.getOrNull(it)
                 view(m, other)
+            }
+            if (size != pre_size) {
+                val screen = fragment.preferenceScreen
+                val item_in_order = model.allowed.lst.map { fragment.findPreference(it.first) }
+                item_in_order.forEach { screen.removePreference(it) }
+                item_in_order.forEach { screen.addPreference(it) }
+//                item_in_order.first().icon =  a.getDrawable(R.styleable.IconPreferenceScreen_icon);
+
             }
         }
     }
@@ -110,7 +121,7 @@ abstract class ElmPreferenceSettings(val me: Activity) : ElmChild<Model, Msg>() 
                 fragment.preferenceScreen.removePreference(dropped)
             } else {
                 val changed = fragment.findPreference(model.first)
-                changed.summary = model.second
+                changed.summary = model.second.phoneFormat()
                 changed.title = ""
             }
         }

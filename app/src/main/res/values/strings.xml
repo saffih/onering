@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">OneRing</string>
+    <!--<string name="app_name">OneRing</string>-->
 
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
@@ -24,5 +24,10 @@
     <string name="pref_title_allowed_whitelist">Filter unlisted queries</string>
     <string name="pref_description_allowed_whitelist">List of contacts that are allowed to query the location by sms</string>
     <string name="pref_allow_default_value">Please add number</string>
+    <string name="pref_description_openmap_switch">Open map and location</string>
+    <string name="pref_title_openmap_switch">Open map upon a request</string>
+    <string name="pref_header_options">Options</string>
+    <string name="pref_description_request_ack_switch">Send immidiate sms response when request recieved</string>
+    <string name="pref_title_request_ack_switch">Respond immediately to request</string>
 
 </resources>

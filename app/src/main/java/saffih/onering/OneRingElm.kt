@@ -26,11 +26,9 @@ import saffih.elmdroid.Que
 import saffih.elmdroid.service.client.ElmMessengerServiceClient
 import saffih.elmdroid.service.client.MService
 import saffih.onering.mylocation.LocationActivity
-import saffih.onering.service.MainService
-import saffih.onering.service.effectiveAllowedList
-import saffih.onering.service.toApi
-import saffih.onering.service.toMessage
+import saffih.onering.service.*
 import saffih.onering.settings.SettingsActivity
+import saffih.tools.TinyDB
 import saffih.elmdroid.service.client.Model as ClientModel
 import saffih.elmdroid.service.client.Msg as ClientMsg
 
@@ -320,12 +318,14 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
                 NavOption.Send -> {
                     val allowedList = me.effectiveAllowedList()
                     if (!allowedList.isEmpty()) {
-                        val sendTo = allowedList[0].replace("[- ]".toRegex(), "")
+                        val sendTo = allowedList[0].phoneFormat()
                         toast(" Sending location to $sendTo")
-                        me.startActivity(
-                                Intent(me, LocationActivity::class.java))
                         mainServiceClient.request(MainMsgApi.dbgGot(sendTo, "1ring"))
-//
+                        if (TinyDB(me).getBoolean("openmap_switch")) {
+                            me.startActivity(
+                                    Intent(me, LocationActivity::class.java))
+                        }
+
                         ret(model, close)//listOf(close, Msg.Activity.Action.ShowLocation()))
                     } else {
                         toast(" No filtering by calling number. Unsecured !!! please assign and enable in the settings.")

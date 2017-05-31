@@ -33,6 +33,11 @@ class LocationActivity : FragmentActivity() {
     // in this activity we wanted a narrow life cycle of start stop
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        app.onCreate()
+        val location: Location? = savedInstanceState?.getParcelable("location")
+        if (location != null) {
+            app.dispatch(Msg.Activity.GotLocation(location))
+        }
     }
 
     override fun onStart() {
@@ -135,7 +140,7 @@ class LocationApp(override val me: FragmentActivity) : ElmBase<Model, Msg>(me), 
 
                 val que = listOf(
                         Msg.Activity.Map.AddMarker(MarkerOptions().position(here).title("you are here")),
-                        Msg.Activity.Map.MoveCamera(CameraUpdateFactory.newLatLng(here)))
+                        Msg.Activity.Map.MoveCamera(CameraUpdateFactory.newLatLngZoom(here, 15.0f)))
                 ret(model, que)
             }
             is Msg.Activity.FirstRequest -> {
@@ -194,13 +199,13 @@ class LocationApp(override val me: FragmentActivity) : ElmBase<Model, Msg>(me), 
             checkView({}, model.markers, pre?.markers) {
                 post {
                     model.markers.forEach {
-                        model.googleMap!!.addMarker(it)
+                        model.googleMap?.addMarker(it)
                     }
                 }
             }
             checkView({}, model.camera, pre?.camera) {
                 post {
-                    model.googleMap!!.moveCamera(model.camera)
+                    model.googleMap?.moveCamera(model.camera)
                 }
             }
         }

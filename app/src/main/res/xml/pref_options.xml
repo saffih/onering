@@ -1,0 +1,15 @@
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <SwitchPreference
+        android:defaultValue="false"
+        android:key="openmap_switch"
+        android:summary="@string/pref_description_openmap_switch"
+        android:title="@string/pref_title_openmap_switch" />
+
+    <SwitchPreference
+        android:defaultValue="true"
+        android:key="request_ack_switch"
+        android:summary="@string/pref_description_request_ack_switch"
+        android:title="@string/pref_title_request_ack_switch" />
+
+</PreferenceScreen>

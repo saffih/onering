@@ -1,0 +1,19 @@
+<resources><string name="instructions">
+  <a href="https://en.wikipedia.org/wiki/One_Ring"><big>OneRing</big> to find them.</a>\n
+  I always want to know where are my kids and need to unmute and find a lost phone.\n
+  <li>  “<b>1ring</b>” sms trigger word</li>\n
+  <li>  <b>Secured, choose who can access</b> \n
+  Specify contacts phone numbers to permit and ignore all other.</li>
+\n\n
+  <big>Escalation</big>\n
+  Subsequent trigger within a minute would escalate\n.
+  <li>  Once - query for location &amp; Opens the app.</li>\n
+  <li>  Twice - Takes the phone out of the “Do not disturb (muted)”</li>\n
+  <li>  Thrice - Sets the ring volume to max.</li>\n
+  \n
+  \n
+  \n
+
+  Coded for my personal use.  Please use it accorinding to the law and safely.
+ </string>
+</resources>

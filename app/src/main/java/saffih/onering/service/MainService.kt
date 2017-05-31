@@ -21,6 +21,7 @@ import saffih.elmdroid.service.ElmMessengerService.Companion.startService
 import saffih.elmdroid.sms.child.MSms
 import saffih.elmdroid.sms.child.SmsChild
 import saffih.onering.OneRingActivity
+import saffih.onering.mylocation.LocationActivity
 import saffih.onering.persist.AllowedHelper
 import saffih.tools.TinyDB
 import java.util.*
@@ -304,7 +305,7 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
 
 
     private fun numberPassedFilter(model: MState, number: String): Boolean {
-        val endwith = number.takeLast(7)
+        val endwith = number.cleanPhoneNumber().takeLast(7)
         val whitelist = model.conf.allowFrom.allowed.
                 map { it.replace("[-+ ]".toRegex(), "") }
                 .map { it.takeLast(7) }
@@ -327,7 +328,7 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
                     ret(model, Msg.Step.Ticket.Open(sms.number))
                 } else {
                     if (wordMatch(sms)) {
-                        toast("ignored sms from ${sms.number}")
+                        toast("Ignored sms from ${sms.number}")
                     }
                     ret(model)
                 }
@@ -337,6 +338,9 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
                 ret(model.copy(tickets = m), c)
             }
             is Msg.Step.GotLocation -> {
+                if (TinyDB(me).getBoolean("openmap_switch")) {
+                    startShowLocation(msg.location)
+                }
                 val lat = msg.location.latitude
                 val lon = msg.location.longitude
                 val url = "http://maps.google.com/?q=${lat},${lon}"
@@ -418,18 +422,26 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
                         ((now.time - model.queryDate.time) / 1000 < 30)
                     } else false
                     val escalate = if (escalateFlag) model.escalate.next() else TicketEscalate.ping
-                    when (escalate) {
+                    val pong = when (escalate) {
                         TicketEscalate.ping -> {
                             startOneRing("ping")
+                            "Searching"
                         }
                         TicketEscalate.unmute -> {
                             unmute()
-                            toast("unmute")
+                            val txt = "Unmuted"
+                            toast(txt)
+                            txt
                         }
                         TicketEscalate.screem -> {
                             maxVolume()
-                            toast("Volume set to max")
+                            val txt = "Volume set to max"
+                            toast(txt)
+                            txt
                         }
+                    }
+                    if (TinyDB(me).getBoolean("request_ack_switch")) {
+                        sms.impl.sendSms(MSms(model.number, pong))
                     }
                     ret(model.copy(
                             status = TicketStatus.opened,
@@ -444,7 +456,8 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
                 } else {
                     // once we do processing inside then we would use a message.
                     sms.impl.sendSms(MSms(model.number, msg.locationMessage))
-//                val c = Msg.Child.Sms(SmsMsgApi.sms(destinationAddress = model.number, text=msg.locationMessage))
+//                    startShowLocation(msg.locationMessage)
+                    //                val c = Msg.Child.Sms(SmsMsgApi.sms(destinationAddress = model.number, text=msg.locationMessage))
                     ret(model.copy(status = TicketStatus.closed))
                     //, listOf( Msg.Step.Ticket.Close(model)) )
                 }
@@ -464,6 +477,15 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
         b.putString("action", action) //Your id
         intent.putExtras(b)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        me.startActivity(intent)
+    }
+
+    private fun startShowLocation(location: Location) {
+        val intent = Intent(me, LocationActivity::class.java)
+        val b = Bundle()
+        intent.putExtras(b)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        b.putParcelable("location", location)
         me.startActivity(intent)
     }
 
@@ -560,4 +582,27 @@ class MainService : Service() {
     }
 
 
+}
+
+
+fun String.phoneFormat(): String {
+    return this.onlyDigits()?.toPhoneFormat() ?: this
+}
+
+
+fun String.onlyDigits(): String? {
+    val res = cleanPhoneNumber()
+    return if (res.all { it in ('0'..'9') }) res else null
+}
+
+fun String.cleanPhoneNumber() = this.replace("[-+() ]".toRegex(), "")
+
+fun String.toPhoneFormat(): String? {
+    return when (this.length) {
+        7 -> "%s %s".format(substring(0, 3), substring(3, 7))
+        10 -> "(%s) %s %s".format(substring(0, 3), substring(3, 6), substring(6, 10))
+        11 -> "%s (%s) %s %s".format(substring(0, 1), substring(1, 4), substring(4, 7), substring(7, 11))
+        12 -> "+%s (%s) %s %s".format(substring(0, 3), substring(3, 5), substring(5, 8), substring(8, 12))
+        else -> return null
+    }
 }
