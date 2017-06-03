@@ -7,8 +7,6 @@ package saffih.onering
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.support.design.widget.FloatingActionButton
 import android.support.design.widget.NavigationView
 import android.support.design.widget.Snackbar
@@ -137,8 +135,11 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
         NavigationView.OnNavigationItemSelectedListener {
 
     fun toast(txt: String, duration: Int = Toast.LENGTH_LONG) {
-        val handler = Handler(Looper.getMainLooper())
-        handler.post({ Toast.makeText(me, txt, duration).show() })
+//        val handler = Handler(Looper.getMainLooper())
+//        handler.
+//                post({
+        Toast.makeText(me, txt, duration).show()
+//    })
     }
 
     inner class MainsElmRemoteServiceClient(me: Context) :
@@ -158,6 +159,8 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
             super.onConnected(msg)
 
         }
+
+
     }
 
     val mainServiceClient = MainsElmRemoteServiceClient(me)

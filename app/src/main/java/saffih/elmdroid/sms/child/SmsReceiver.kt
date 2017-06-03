@@ -30,13 +30,17 @@ import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsMessage
 import saffih.elmdroid.activityCheckForPermission
+import saffih.elmdroid.post
 
 
-open class SMSReceiverAdapter(val hook: (Array<out SmsMessage?>) -> Unit) : BroadcastReceiver() {
+open class SMSReceiverAdapter(val hook: (Array<out SmsMessage?>) -> Unit,
+                              open val priority: Int? = null
+) : BroadcastReceiver() {
 
     fun meRegister(me: Context) {
         val filter = IntentFilter()
-        filter.priority = 18
+        filter.priority = priority ?: filter.priority
+
         filter.addAction("android.provider.Telephony.SMS_RECEIVED")
         me.registerReceiver(this, filter)
     }
@@ -46,7 +50,9 @@ open class SMSReceiverAdapter(val hook: (Array<out SmsMessage?>) -> Unit) : Broa
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        hook(extractSms(intent))
+        context.post {
+            hook(extractSms(intent))
+        }
     }
 
 

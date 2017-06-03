@@ -27,7 +27,11 @@
     <string name="pref_description_openmap_switch">Open map and location</string>
     <string name="pref_title_openmap_switch">Open map upon a request</string>
     <string name="pref_header_options">Options</string>
-    <string name="pref_description_request_ack_switch">Send immidiate sms response when request recieved</string>
-    <string name="pref_title_request_ack_switch">Respond immediately to request</string>
+    <string name="pref_description_reply_each_request_with_status_switch">Reply each request with current status</string>
+    <string name="pref_title_reply_each_request_with_status_switch">Reply with status</string>
+    <string name="pref_description_make_effort_to_detect_spoofed_sms_switch">Best effort - filter spoofed requests</string>
+    <string name="pref_title_make_effort_to_detect_spoofed_sms_switch">Match prefix for provider and owner number </string>
+    <string name="pref_description_foreground_service_and_notification_switch">Start service in the foreground (thus having persistent notification)</string>
+    <string name="pref_title_foreground_service_and_notification_switch"><![CDATA[Foreground service & Notification]]></string>
 
 </resources>

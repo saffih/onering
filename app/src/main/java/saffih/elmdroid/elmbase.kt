@@ -31,7 +31,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
-import android.os.Looper
 import android.support.v4.content.ContextCompat
 import android.widget.Toast
 
@@ -381,14 +380,15 @@ abstract class StateEngine<M, MSG> : StatePattern<M, MSG> {
     private var cnt = 0
 
     private fun mainCompute(que: Que<MSG>, mc: Pair<M, Que<MSG>>): Pair<M, Que<MSG>> {
-        if (cnt != 0) throw RuntimeException("concurrent innerloop! dispatch was called instead of postDispatch")
+        if (cnt != 0) throw RuntimeException("concurrent innerloop! dispatch was called instead of post{dispatch}")
+
         cnt += 1
         val (model, que0) = mc
         var mc2 = ret(model, que0 + que)
         // consume commands
         val act = block@ {
             for (i in 0..1000) {
-                val que2 = mc2.second //+this.flushed()
+                val que2 = mc2.second + takePending()
                 if (que2.lst.isEmpty()) {
                     return@block false
                 }
@@ -461,6 +461,11 @@ abstract class ElmEngine<M, MSG> : StateEngine<M, MSG>(), Viewable<M> {
 //    }
 //}
 
+
+fun Context.post(posted: () -> Unit): Boolean {
+    return Handler(this.mainLooper).post(posted)
+}
+
 /**
  * For Activities having main Handler and dispatch.
  */
@@ -468,22 +473,22 @@ abstract class ElmBase<M, MSG>(open val me: Context?) : ElmEngine<M, MSG>() {
 
     // Get a handler that can be used to post to the main thread
     // it is lazy since it is created after the view exist.
-    private val mainHandler by lazy { Handler(me?.mainLooper) }
+    val mainHandler by lazy { Handler(me?.mainLooper) }
 
     // cross thread communication
 
-    fun postDispatch(msg: MSG) {
-        val function = { dispatch(msg) }
-        post(function)
-    }
+//    fun postDispatch(msg: MSG) {
+//        val function = { dispatch(msg) }
+//        post(function)
+//    }
 
     protected fun post(function: () -> Unit) {
         mainHandler.post(function)
     }
 
-    fun postDispatch() {
-        mainHandler.post({ dispatch() })
-    }
+//    fun postDispatch() {
+//        mainHandler.post({ dispatch() })
+//    }
 
 
 }
@@ -492,8 +497,7 @@ abstract class ElmBase<M, MSG>(open val me: Context?) : ElmEngine<M, MSG>() {
 fun activityCheckForPermission(me: Activity, perm: String, code: Int,
                                showExplanation: (() -> Unit)? = null): Boolean {
     fun toast(txt: String, duration: Int = Toast.LENGTH_SHORT) {
-        val handler = Handler(Looper.getMainLooper())
-        handler.post({ Toast.makeText(me, txt, duration).show() })
+        me.post({ Toast.makeText(me, txt, duration).show() })
     }
 
     val pm = me.packageManager

@@ -23,6 +23,7 @@ import android.view.MenuItem
 import saffih.elmdroid.ElmBase
 import saffih.elmdroid.Que
 import saffih.elmdroid.bindState
+import saffih.elmdroid.post
 import saffih.elmdroid.service.client.ElmMessengerServiceClient
 import saffih.elmdroid.service.client.MService
 import saffih.onering.MainMsgApi
@@ -85,9 +86,13 @@ class AppSettings(override val me: Activity) : ElmBase<Model, Msg>(me) {
             super.onConnected(msg)
 
         }
+
+        fun updateForegroundNotification() {
+            request(MainMsgApi.updateForegroundNotification())
+        }
     }
 
-//    val mainServiceClient = MainsElmRemoteServiceClient(me)
+    val mainServiceClient = MainsElmRemoteServiceClient(me)
 
 
     private val allowedApp = bindState(object : ElmPreferenceSettings(me) {
@@ -95,9 +100,9 @@ class AppSettings(override val me: Activity) : ElmBase<Model, Msg>(me) {
 //            mainServiceClient.request(MainMsgApi.settingsChange)
 //        }
 
-        override fun postDispatch(edited: saffih.onering.settings.allowed.Msg.Allowed.Edited) {
-            postDispatch(Msg.Child.Allowed(edited))
-        }
+//        override fun postDispatch(edited: saffih.onering.settings.allowed.Msg.Allowed.Edited) {
+//            postDispatch(Msg.Child.Allowed(edited))
+//        }
 
     }) { Msg.Child.Allowed(it) }
 
@@ -175,6 +180,16 @@ class AppSettings(override val me: Activity) : ElmBase<Model, Msg>(me) {
                 }
             }
         }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        mainServiceClient.onCreate()
+    }
+
+    override fun onDestroy() {
+        mainServiceClient.onDestroy()
+        super.onDestroy()
     }
 }
 
@@ -327,6 +342,16 @@ class Fragments {
             val app = (activity as SettingsActivity).app
             addPreferencesFromResource(R.xml.pref_options)
             setHasOptionsMenu(true)
+
+            val useForeground = findPreference("foreground_service_and_notification_switch")
+            useForeground.onPreferenceChangeListener = object : Preference.OnPreferenceChangeListener {
+                override fun onPreferenceChange(preference: Preference?, newValue: Any?): Boolean {
+                    activity.post {
+                        app.mainServiceClient.updateForegroundNotification()
+                    }
+                    return true
+                }
+            }
         }
 
         override fun onOptionsItemSelected(item: MenuItem): Boolean {

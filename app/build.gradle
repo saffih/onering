@@ -34,9 +34,9 @@ android {
     signingConfigs {
         config {
             storeFile file('/home/saffi/code/keystore4.jks')
-            storePassword 'XXXX'
+            storePassword 'XXX'
             keyAlias 'key'
-            keyPassword 'XXXX'
+            keyPassword 'XXX'
         }
     }
 
@@ -47,8 +47,8 @@ android {
         applicationId "saffih.onering"
         minSdkVersion 15
         targetSdkVersion 25
-        versionCode 17
-        versionName "0.3a"
+        versionCode 24
+        versionName "0.4c"
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         signingConfig signingConfigs.config

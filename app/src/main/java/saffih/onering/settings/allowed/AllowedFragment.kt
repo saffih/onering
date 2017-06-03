@@ -10,6 +10,7 @@ import android.preference.Preference
 import android.preference.PreferenceFragment
 import saffih.elmdroid.ElmChild
 import saffih.elmdroid.Que
+import saffih.elmdroid.post
 import saffih.onering.R
 import saffih.onering.service.phoneFormat
 import saffih.onering.service.updateAllowedList
@@ -109,7 +110,7 @@ abstract class ElmPreferenceSettings(val me: Activity) : ElmChild<Model, Msg>() 
                 preference.summary = newValue as String
                 // since we use preference rather then the model as a single source of truth.
                 // adjust later for dups/remove
-                postDispatch(Msg.Allowed.Edited(key))
+                me.post { dispatch(Msg.Allowed.Edited(key)) }
                 true
             }
             fragment.preferenceScreen.addPreference(ep)
@@ -127,5 +128,5 @@ abstract class ElmPreferenceSettings(val me: Activity) : ElmChild<Model, Msg>() 
         }
     }
 
-    abstract fun postDispatch(edited: Msg.Allowed.Edited)
+//    abstract fun postDispatch(edited: Msg.Allowed.Edited)
 }

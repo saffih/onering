@@ -83,7 +83,7 @@
             android:parentActivityName=".OneRingActivity">
             <meta-data
                 android:name="android.support.PARENT_ACTIVITY"
-                android:value="saffih.onering.OneRingActivity" />
+                android:value=".OneRingActivity" />
         </activity>
     </application>
 

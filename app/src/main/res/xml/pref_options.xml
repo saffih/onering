@@ -8,8 +8,20 @@
 
     <SwitchPreference
         android:defaultValue="true"
-        android:key="request_ack_switch"
-        android:summary="@string/pref_description_request_ack_switch"
-        android:title="@string/pref_title_request_ack_switch" />
+        android:key="reply_each_request_with_status_switch"
+        android:summary="@string/pref_description_reply_each_request_with_status_switch"
+        android:title="@string/pref_title_reply_each_request_with_status_switch" />
+
+    <SwitchPreference
+        android:defaultValue="true"
+        android:key="make_effort_to_detect_spoofed_sms_switch"
+        android:summary="@string/pref_description_make_effort_to_detect_spoofed_sms_switch"
+        android:title="@string/pref_title_make_effort_to_detect_spoofed_sms_switch" />
+
+    <SwitchPreference
+        android:defaultValue="true"
+        android:key="foreground_service_and_notification_switch"
+        android:summary="@string/pref_description_foreground_service_and_notification_switch"
+        android:title="@string/pref_title_foreground_service_and_notification_switch" />
 
 </PreferenceScreen>

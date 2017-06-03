@@ -4,15 +4,20 @@
 
 package saffih.onering.service
 
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.location.Location
 import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Message
+import android.support.v7.app.NotificationCompat
 import android.telephony.SmsMessage
+import android.telephony.TelephonyManager
 import saffih.elmdroid.Que
 import saffih.elmdroid.bindState
 import saffih.elmdroid.gps.child.GpsChild
@@ -21,8 +26,8 @@ import saffih.elmdroid.service.ElmMessengerService.Companion.startService
 import saffih.elmdroid.sms.child.MSms
 import saffih.elmdroid.sms.child.SmsChild
 import saffih.onering.OneRingActivity
+import saffih.onering.R
 import saffih.onering.mylocation.LocationActivity
-import saffih.onering.persist.AllowedHelper
 import saffih.tools.TinyDB
 import java.util.*
 
@@ -118,8 +123,8 @@ data class MTicket(val number: String,
     }
 }
 
-data class MSmsMessage(val number: String, val body: String) {
-    constructor (sms: SmsMessage) : this(sms.originatingAddress, sms.messageBody)
+data class MSmsMessage(val number: String, val body: String, val center: String) {
+    constructor (sms: SmsMessage) : this(sms.originatingAddress, sms.messageBody, sms.serviceCenterAddress ?: "")
 }
 
 
@@ -133,7 +138,7 @@ sealed class Msg {
     sealed class Step : Msg() {
         data class ConfChange(val conf: MConf) : Step()
         data class GotSms(val sms: MSmsMessage) : Step() {
-            constructor(number: String, body: String) : this(MSmsMessage(number, body))
+            constructor(number: String, body: String, center: String = "") : this(MSmsMessage(number, body, center))
         }
 
         sealed class Ticket : Step() {
@@ -154,6 +159,7 @@ sealed class Msg {
 
     sealed class Api : Msg() {
         companion object {
+            fun updateForegroundNotification() = Request.UpdateForegroundNotification()
             fun confChange(conf: MConf) = Request.ConfChange(conf)
             fun dbgGot(number: String, txt: String) = Request.Inject(Msg.Step.GotSms(number, txt))
         }
@@ -161,6 +167,7 @@ sealed class Msg {
         sealed class Request : Api() {
             class ConfChange(val conf: MConf) : Request()
             class Inject(val msg: Msg) : Request()
+            class UpdateForegroundNotification : Request()
         }
 
         sealed class Reply : Api() {
@@ -186,7 +193,7 @@ sealed class Msg {
 enum class API {
     RequestConfChange,
     StateChange,
-    INJECT
+    INJECT, UpdateForegroundNotification
 }
 
 fun Message.toApi(): Msg.Api {
@@ -194,6 +201,7 @@ fun Message.toApi(): Msg.Api {
         API.RequestConfChange.ordinal -> Msg.Api.confChange(this.obj as MConf)
         API.StateChange.ordinal -> Msg.Api.Reply.Updated(this.obj as Model)
         API.INJECT.ordinal -> Msg.Api.Request.Inject(this.obj as Msg)
+        API.UpdateForegroundNotification.ordinal -> Msg.Api.Request.UpdateForegroundNotification()
         else -> {
             throw RuntimeException("${this} has no 'what' value set")
         }
@@ -205,6 +213,7 @@ fun Msg.Api.toMessage(): Message {
         is Msg.Api.Reply.Updated -> Message.obtain(null, API.StateChange.ordinal, this.model)
         is Msg.Api.Request.ConfChange -> Message.obtain(null, API.RequestConfChange.ordinal, this.conf)
         is Msg.Api.Request.Inject -> Message.obtain(null, API.INJECT.ordinal, this.msg)
+        is Msg.Api.Request.UpdateForegroundNotification -> Message.obtain(null, API.UpdateForegroundNotification.ordinal)
     }
 }
 
@@ -220,15 +229,22 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
 //        }
 
         override fun onLocationChanged(location: Location) {
-            postDispatch(Msg.Step.GotLocation(location))
+            post { dispatch(Msg.Step.GotLocation(location)) }
         }
     }) { Msg.Child.Gps(it) }
 
     private val sms = bindState(object : SmsChild(me) {
         override fun onSmsArrived(sms: List<SmsMessage>) {
-            addPending(sms.map { Msg.Step.GotSms(it.originatingAddress, it.messageBody) })
+            val pending = sms.map { Msg.Step.GotSms(MSmsMessage(it)) }
+            post { dispatch(pending) }
         }
     }) { Msg.Child.Sms(it) }
+
+    //    private fun getCountry():String{
+//
+//        return telephonyManager.simCountryIso
+//        return telephonyManager.networkCountryIso
+//    }
 
 
     override fun onDestroy() {
@@ -272,7 +288,7 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
         )
     }
 
-    val dbhelper = AllowedHelper(me)
+//    val dbhelper = AllowedHelper(me)
 
     override fun update(msg: Msg, model: Model): Pair<Model, Que<Msg>> {
         return when (msg) {
@@ -307,11 +323,12 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
     private fun numberPassedFilter(model: MState, number: String): Boolean {
         val endwith = number.cleanPhoneNumber().takeLast(7)
         val whitelist = model.conf.allowFrom.allowed.
-                map { it.replace("[-+ ]".toRegex(), "") }
-                .map { it.takeLast(7) }
+                map { it.cleanPhoneNumber().takeLast(7) }
         val passed = whitelist.isEmpty() || whitelist.contains(endwith)
         return passed
     }
+
+    val telephonyManager get () = me.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
 
 
     private fun update(msg: Msg.Step, model: MState): Pair<MState, Que<Msg>> {
@@ -323,15 +340,16 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
             }
             is Msg.Step.GotSms -> {
                 val sms = msg.sms
-                if (passedCheck(model, sms)) {
-                    toast("got Reqest ${sms}")
-                    ret(model, Msg.Step.Ticket.Open(sms.number))
-                } else {
-                    if (wordMatch(sms)) {
-                        toast("Ignored sms from ${sms.number}")
+                if (spoofed(sms)) ret(model) else
+                    if (passedCheck(model, sms)) {
+                        toast("got Reqest ${sms}")
+                        ret(model, Msg.Step.Ticket.Open(sms.number))
+                    } else {
+                        if (wordMatch(sms)) {
+                            toast("Ignored sms from ${sms.number}")
+                        }
+                        ret(model)
                     }
-                    ret(model)
-                }
             }
             is Msg.Step.Ticket -> {
                 val (m, c) = update(msg, model.tickets)
@@ -349,7 +367,28 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
         }
     }
 
+    private fun spoofed(sms: MSmsMessage): Boolean {
+        try {
+            if (TinyDB(me).getBoolean("make_effort_to_detect_spoofed_sms_switch")) {
+                val yournumber = telephonyManager.line1Number
+                if (telephonyManager.isNetworkRoaming) {
+                    if (yournumber.length > 4) {
+                        val prefix = yournumber.slice(0..4)
+                        if (!sms.center.startsWith(prefix)) {
+                            toast(" suspect spoofing! got sms from center ${sms.center}. expected prefix ${prefix}")
+                            return true
+                        }
+                    }
+                }
+            }
+        } catch (e: RuntimeException) {
+            toast("Bug checking service center." + e)
+        }
+        return false
+    }
+
     private fun passedCheck(model: MState, sms: MSmsMessage): Boolean {
+//        make_effort_to_detect_spoofed_sms_switch
         val word = wordMatch(sms)
         return word && (numberPassedFilter(model, sms.number))
     }
@@ -425,7 +464,7 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
                     val pong = when (escalate) {
                         TicketEscalate.ping -> {
                             startOneRing("ping")
-                            "Searching"
+                            "Searching..."
                         }
                         TicketEscalate.unmute -> {
                             unmute()
@@ -440,7 +479,7 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
                             txt
                         }
                     }
-                    if (TinyDB(me).getBoolean("request_ack_switch")) {
+                    if (TinyDB(me).getBoolean("reply_each_request_with_status_switch")) {
                         sms.impl.sendSms(MSms(model.number, pong))
                     }
                     ret(model.copy(
@@ -501,6 +540,10 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
                     is Msg.Api.Request.Inject -> {
                         ret(model, msg.msg)
                     }
+                    is Msg.Api.Request.UpdateForegroundNotification -> {
+                        (me as MainService).updateForegroundState()
+                        ret(model)
+                    }
                 }
             }
             is Msg.Api.Reply -> {
@@ -519,35 +562,76 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
 }
 
 
-class BootCompletedIntentReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        val serviceClass = MainService::class.java
-        if ("android.intent.action.BOOT_COMPLETED" == intent.action) {
-            val pushIntent = Intent(context, serviceClass)
-            context.startService(pushIntent)
-        }
-    }
-}
-
-
-class OnSmsIntentReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if ("android.provider.Telephony.SMS_RECEIVED" == intent.action) {
-            startService(context, MainService::class.java)
-//            val arr = extractSms(intent)
-//            arr.filterNotNull().forEach {
-//                startService(context, MainService::class.java//)
-//                        , null, Msg.Step.GotSms(it.originatingAddress, it.messageBody))
+private fun startService(context: Context) {
+    startService(context, MainService::class.java) {
+        //        No need - default
+//            it.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+//        Not broadcasting but recieving
+//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+//                it.addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
 //            }
-        }
+//        }
     }
-
-
 }
+
 
 class MainService : Service() {
     val app = MainServiceElm(this)
 
+
+    fun updateForegroundState() {
+        val shouldBe = TinyDB(this).getBoolean("foreground_service_and_notification_switch")
+        updateForegroundState(shouldBe)
+    }
+
+    fun updateForegroundState(state: Boolean) {
+        if (state) {
+            runAsForeground()
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(R.id.notification_background)
+                val notificationManager =
+                        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.cancel(R.id.notification_background)
+            }
+        }
+    }
+
+    // not used
+    private fun runAsForeground() {
+//        val notificationManager =
+//                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationIntent = Intent(this, OneRingActivity::class.java)
+
+        val flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        notificationIntent.flags = flags
+
+        val intent = PendingIntent.getActivity(this, 0, notificationIntent, 0)
+
+        val notification = NotificationCompat.Builder(this)
+                .setSmallIcon(R.drawable.ic_1ring_notification)
+                .setContentText(getString(R.string.app_name))
+                .setContentIntent(intent)
+                .setAutoCancel(true)
+                .build()
+
+
+//        notification.setLatestEventInfo(context, title, message, intent);
+//        notification.flags = notification.flags or Notification.FLAG_AUTO_CANCEL;
+//        notificationManager.notify(0, notification);
+
+
+        startForeground(R.id.notification_background, notification)
+
+
+        /*
+        *
+        *
+            internal var notification = Notification(icon, message, `when`)
+        *
+        * */
+
+    }
 
     override fun onBind(intent: android.content.Intent): android.os.IBinder {
         return app.onBind(intent)
@@ -555,19 +639,35 @@ class MainService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        if (TinyDB(this).getBoolean("foreground_service_and_notification_switch")) {
+            updateForegroundState(true)
+        }
         app.onCreate()
+
 
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         app.onStartCommand(intent, flags, startId)
 //        return super.onStartCommand(intent, flags, startId)
+//        fun poll () {
+//            app.dispatch()
+//            app.mainHandler.postDelayed({poll()},
+//                    1000L*30)
+//        }
+//        poll()
+
         return Service.START_REDELIVER_INTENT
 
     }
 
+
     override fun onDestroy() {
         app.onDestroy()
+        if (TinyDB(this).getBoolean("foreground_service_and_notification_switch")) {
+            updateForegroundState(false)
+        }
+
         super.onDestroy()
     }
 
@@ -595,14 +695,34 @@ fun String.onlyDigits(): String? {
     return if (res.all { it in ('0'..'9') }) res else null
 }
 
-fun String.cleanPhoneNumber() = this.replace("[-+() ]".toRegex(), "")
+fun String.cleanPhoneNumber() = this.replace("[-+() .]".toRegex(), "")
 
 fun String.toPhoneFormat(): String? {
     return when (this.length) {
-        7 -> "%s %s".format(substring(0, 3), substring(3, 7))
-        10 -> "(%s) %s %s".format(substring(0, 3), substring(3, 6), substring(6, 10))
-        11 -> "%s (%s) %s %s".format(substring(0, 1), substring(1, 4), substring(4, 7), substring(7, 11))
-        12 -> "+%s (%s) %s %s".format(substring(0, 3), substring(3, 5), substring(5, 8), substring(8, 12))
+        7 -> "%s%s".format(substring(0, 3), substring(3, 7))
+        10 -> "%s-%s%s".format(substring(0, 3), substring(3, 6), substring(6, 10))
+        11 -> "%s(%s)%s%s".format(substring(0, 1), substring(1, 4), substring(4, 7), substring(7, 11))
+        12 -> "+%s(%s)%s%s".format(substring(0, 3), substring(3, 5), substring(5, 8), substring(8, 12))
         else -> return null
     }
+}
+
+
+class BootCompletedIntentReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if ("android.intent.action.BOOT_COMPLETED" == intent.action) {
+            startService(context)
+        }
+    }
+}
+
+
+class OnSmsIntentReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if ("android.provider.Telephony.SMS_RECEIVED" == intent.action) {
+            startService(context)
+        }
+    }
+
+
 }

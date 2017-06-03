@@ -143,13 +143,13 @@ abstract class ElmMessengerServiceClient<API>(override val me: Context,
                 // interact with the service.  We are communicating with the
                 // service using a Messenger, so here we get a client-side
                 // representation of that from the raw IBinder object.
-                postDispatch(Msg.Service.Connected(className, service))
+                post { dispatch(Msg.Service.Connected(className, service)) }
             }
 
             override fun onServiceDisconnected(className: ComponentName) {
                 // This is called when the connection with the service has been
                 // unexpectedly disconnected -- that is, its process crashed.
-                postDispatch(Msg.Service.Disconnected(className))
+                post { dispatch(Msg.Service.Disconnected(className)) }
             }
         }
     }

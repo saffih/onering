@@ -32,12 +32,11 @@ import android.content.Context
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.os.Handler
-import android.os.Looper
 import android.widget.Toast
 import saffih.elmdroid.Que
 import saffih.elmdroid.StateChild
 import saffih.elmdroid.activityCheckForPermission
+import saffih.elmdroid.post
 
 
 sealed class Msg {
@@ -149,7 +148,6 @@ abstract class GpsChild(val me: Context) : StateChild<Model, Msg>() {
                     ret(model)
             is Msg.Api.Reply.NotifyLocation -> {
                 model.listeners.forEach { it.unregister() }
-//                toast("LocationChanged  $msg}")
                 onLocationChanged(msg.location)
                 ret(model.copy(listeners = listOf()))
             }
@@ -158,8 +156,7 @@ abstract class GpsChild(val me: Context) : StateChild<Model, Msg>() {
 
 
     fun toast(txt: String, duration: Int = Toast.LENGTH_SHORT) {
-        val handler = Handler(Looper.getMainLooper())
-        handler.post({ Toast.makeText(me, txt, duration).show() })
+        Toast.makeText(me, txt, duration).show()
     }
 
 
@@ -167,12 +164,26 @@ abstract class GpsChild(val me: Context) : StateChild<Model, Msg>() {
         val lm: LocationManager = me.getSystemService(Context.LOCATION_SERVICE)
                 as LocationManager
         val allListeners = listOf(
-                LocationProviderDisabledListener(lm) { dispatch(Msg.Response.Disabled(it)) },
-                LocationProviderEnabledListener(lm) { dispatch(Msg.Response.Enabled(it)) },
-                LocationStatusChangedListener(lm) { provider, status, extras ->
-                    dispatch(Msg.Response.StatusChanged(provider, status, extras))
+                LocationProviderDisabledListener(lm) {
+                    me.post {
+                        dispatch(Msg.Response.Disabled(it))
+                    }
                 },
-                LocationChangedListener(lm) { dispatch(Msg.Response.LocationChanged(it)) })
+                LocationProviderEnabledListener(lm) {
+                    me.post {
+                        dispatch(Msg.Response.Enabled(it))
+                    }
+                },
+                LocationStatusChangedListener(lm) { provider, status, extras ->
+                    me.post {
+                        dispatch(Msg.Response.StatusChanged(provider, status, extras))
+                    }
+                },
+                LocationChangedListener(lm) {
+                    me.post {
+                        dispatch(Msg.Response.LocationChanged(it))
+                    }
+                })
 
         allListeners.forEach { it.registerAt() }
         return allListeners

@@ -54,8 +54,7 @@ abstract class ElmMessengerService<M, MSG, API : MSG>(
 
     fun toast(txt: String, duration: Int = Toast.LENGTH_SHORT) {
         if (!debug) return
-        val handler = Handler(Looper.getMainLooper())
-        handler.post({ Toast.makeText(me, txt, duration).show() })
+        post({ Toast.makeText(me, txt, duration).show() })
     }
 
     override fun view(model: M, pre: M?) {
@@ -137,8 +136,9 @@ abstract class ElmMessengerService<M, MSG, API : MSG>(
     }
 
     companion object {
-        fun startService(context: Context, serviceClass: Class<*>, messenger: Messenger? = null,
-                         payload: Parcelable? = null): Boolean {
+        fun startService(context: Context, serviceClass: Class<*>,
+                         messenger: Messenger? = null, payload: Parcelable? = null,
+                         receiver: (Intent) -> Unit = {}): Boolean {
             if (!context.isServiceRunning(serviceClass)) {
                 val startIntent = Intent(context, serviceClass)
                 if (messenger != null) {
@@ -147,6 +147,7 @@ abstract class ElmMessengerService<M, MSG, API : MSG>(
                 if (payload != null) {
                     startIntent.putExtra("PAYLOAD", payload)
                 }
+                receiver(startIntent)
                 context.startService(startIntent)
                 return true
             } else
