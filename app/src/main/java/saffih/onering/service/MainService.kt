@@ -18,11 +18,13 @@ import android.os.Message
 import android.support.v7.app.NotificationCompat
 import android.telephony.SmsMessage
 import android.telephony.TelephonyManager
+import android.widget.Toast
 import saffih.elmdroid.Que
+import saffih.elmdroid.StateBase
 import saffih.elmdroid.bindState
 import saffih.elmdroid.gps.child.GpsChild
-import saffih.elmdroid.service.ElmMessengerService
-import saffih.elmdroid.service.ElmMessengerService.Companion.startService
+import saffih.elmdroid.service.ElmMessengerService.Companion.startServiceIfNotRunning
+import saffih.elmdroid.service.LocalService
 import saffih.elmdroid.sms.child.MSms
 import saffih.elmdroid.sms.child.SmsChild
 import saffih.onering.OneRingActivity
@@ -142,7 +144,7 @@ sealed class Msg {
         }
 
         sealed class Ticket : Step() {
-            data class Open(val number: String) : Ticket()
+            data class Open(val sms: MSmsMessage) : Ticket()
             data class Reply(val locationMessage: String) : Ticket()
 //            data class Close(val ticket: MTicket) : Ticket()
 
@@ -217,11 +219,16 @@ fun Msg.Api.toMessage(): Message {
     }
 }
 
-class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg, Msg.Api>(me,
-        toApi = { it.toApi() },
-        toMessage = { it.toMessage() },
-        debug = true) {
-
+//class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg, Msg.Api>(me,
+//        toApi = { it.toApi() },
+//        toMessage = { it.toMessage() },
+//        debug = true) {
+class MainServiceElm(override val me: Service) : StateBase<Model, Msg>(me) {
+    val debug = true
+    fun toast(txt: String, duration: Int = Toast.LENGTH_SHORT) {
+        if (!debug) return
+        post({ Toast.makeText(me, txt, duration).show() })
+    }
 
     private val gps = bindState(object : GpsChild(me) {
 //        override fun view(model: saffih.elmdroid.gps.child.Model, pre: saffih.elmdroid.gps.child.Model?) {
@@ -340,10 +347,9 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
             }
             is Msg.Step.GotSms -> {
                 val sms = msg.sms
-                if (spoofed(sms)) ret(model) else
                     if (passedCheck(model, sms)) {
-                        toast("got Reqest ${sms}")
-                        ret(model, Msg.Step.Ticket.Open(sms.number))
+                        toast("got Request ${sms}")
+                        ret(model, Msg.Step.Ticket.Open(sms))
                     } else {
                         if (wordMatch(sms)) {
                             toast("Ignored sms from ${sms.number}")
@@ -370,10 +376,10 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
     private fun spoofed(sms: MSmsMessage): Boolean {
         try {
             if (TinyDB(me).getBoolean("make_effort_to_detect_spoofed_sms_switch")) {
-                val yournumber = telephonyManager.line1Number
+                val yourNumber = telephonyManager.line1Number
                 if (telephonyManager.isNetworkRoaming) {
-                    if (yournumber.length > 4) {
-                        val prefix = yournumber.slice(0..4)
+                    if (yourNumber.length > 4) {
+                        val prefix = yourNumber.slice(0..4)
                         if (!sms.center.startsWith(prefix)) {
                             toast(" suspect spoofing! got sms from center ${sms.center}. expected prefix ${prefix}")
                             return true
@@ -413,7 +419,7 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
 
     private fun checkAddNewTicket(msg: Msg.Step.Ticket, model: MTickets): MTickets {
         return if (msg is Msg.Step.Ticket.Open) {
-            val newTicket = MTicket(msg.number)
+            val newTicket = MTicket(msg.sms.number)
             // add ticket
             if (!model.lookup.containsKey(newTicket.key())) {
                 updateTicket(msg, newTicket)
@@ -451,19 +457,28 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
         return when (msg) {
 
             is Msg.Step.Ticket.Open -> {
-                if (!model.match(msg.number))
+                if (!model.match(msg.sms.number))
                     ret(model)
                 else {
                     // check if already in progress - escalate.
                     val c = Msg.Child.Gps(GpsMsgApi.locate())
                     val now = Date()
-                    val escalateFlag = if (model.queryDate != null) {
+                    val escalateFlag = if (
+                    (model.queryDate != null)) {
                         ((now.time - model.queryDate.time) / 1000 < 30)
                     } else false
                     val escalate = if (escalateFlag) model.escalate.next() else TicketEscalate.ping
-                    val pong = when (escalate) {
+                    val pong = if (spoofed(msg.sms)) {  // spoofed can't escalte and response sent to real number
+                        startOneRing("ping")
+                        "Suspect spoofed ... ${msg.sms}"
+                    } else when (escalate) {
                         TicketEscalate.ping -> {
                             startOneRing("ping")
+//                            GoogleApiClient.Builder(me)
+//                                    .addApi(LocationServices.API)
+//                                    .addConnectionCallbacks(this)
+//                                    .addOnConnectionFailedListener(this)
+//                                    .build()
                             "Searching..."
                         }
                         TicketEscalate.unmute -> {
@@ -562,8 +577,8 @@ class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg,
 }
 
 
-private fun startService(context: Context) {
-    startService(context, MainService::class.java) {
+private fun startServiceIfNotRunning(context: Context) {
+    startServiceIfNotRunning(context, MainService::class.java) {
         //        No need - default
 //            it.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
 //        Not broadcasting but recieving
@@ -575,7 +590,8 @@ private fun startService(context: Context) {
 }
 
 
-class MainService : Service() {
+//class MainService : Service() {
+class MainService : LocalService() {
     val app = MainServiceElm(this)
 
 
@@ -633,9 +649,9 @@ class MainService : Service() {
 
     }
 
-    override fun onBind(intent: android.content.Intent): android.os.IBinder {
-        return app.onBind(intent)
-    }
+//    override fun onBind(intent: android.content.Intent): android.os.IBinder {
+//        return app.onBind(intent)
+//    }
 
     override fun onCreate() {
         super.onCreate()
@@ -647,19 +663,11 @@ class MainService : Service() {
 
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        app.onStartCommand(intent, flags, startId)
-//        return super.onStartCommand(intent, flags, startId)
-//        fun poll () {
-//            app.dispatch()
-//            app.mainHandler.postDelayed({poll()},
-//                    1000L*30)
-//        }
-//        poll()
-
-        return Service.START_REDELIVER_INTENT
-
-    }
+//    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+//        app.onStartCommand(intent, flags, startId)
+//        return Service.START_REDELIVER_INTENT
+//
+//    }
 
 
     override fun onDestroy() {
@@ -671,16 +679,16 @@ class MainService : Service() {
         super.onDestroy()
     }
 
-    override fun onRebind(intent: Intent) {
-        super.onRebind(intent)
-        app.onRebind(intent)
+//    override fun onRebind(intent: Intent) {
+//        super.onRebind(intent)
+//        app.onRebind(intent)
+//
+//    }
 
-    }
-
-    override fun onUnbind(intent: Intent): Boolean {
-        return app.onUnbind(intent)
-    }
-
+//    override fun onUnbind(intent: Intent): Boolean {
+//        return app.onUnbind(intent)
+//    }
+//
 
 }
 
@@ -711,7 +719,7 @@ fun String.toPhoneFormat(): String? {
 class BootCompletedIntentReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if ("android.intent.action.BOOT_COMPLETED" == intent.action) {
-            startService(context)
+            startServiceIfNotRunning(context)
         }
     }
 }
@@ -720,7 +728,7 @@ class BootCompletedIntentReceiver : BroadcastReceiver() {
 class OnSmsIntentReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if ("android.provider.Telephony.SMS_RECEIVED" == intent.action) {
-            startService(context)
+            startServiceIfNotRunning(context)
         }
     }
 

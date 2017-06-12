@@ -258,32 +258,13 @@ fun <PM, PMSG, M, MSG, CHILD : StateChild<M, MSG>> StatePattern<PM, PMSG>.bindSt
 ///**
 // * Glue with parent delegate all to impl by calling bindState on impl providing  message
 // */
-//class ElmBound<PM, PMSG, M, MSG, CHILD : ElmChild<M, MSG>>(override val impl: CHILD,
-//                                                           private val parent: ElmPattern<PM, PMSG>,
-//                                                           private val toMsg: (MSG) -> PMSG) :
-//        StateBound<PM, PMSG, M, MSG, CHILD>(impl, parent, toMsg) {
-//    //    fun init(): Pair<M, Que<MSG>> = impl.init()
+
+//class ElmBound<PM, PMSG, M, MSG, CHILD : ElmChild<M, MSG>>(
+//        impl: CHILD,
+//        parent: StatePattern<PM, PMSG>,
+//        toMsg: (MSG) -> PMSG) : StateBound<PM, PMSG, M, MSG, CHILD>(impl, parent, toMsg) {
 //    fun view(model: M, pre: M?) = impl.view(model, pre)
 //}
-
-
-//fun <PM, PMSG, M, MSG, CHILD : ElmChild<M, MSG>> ElmPattern<PM, PMSG>.bindState(
-//        child: CHILD,
-//        toMsg: (MSG) -> PMSG): ElmBound<PM, PMSG, M, MSG, CHILD> {
-//    val res = ElmBound(
-//            child,
-//            parent = this,
-//            toMsg = toMsg)
-//    child.dispatcher = { res.dispatch() }
-//    return res
-//}
-
-class ElmBound<PM, PMSG, M, MSG, CHILD : ElmChild<M, MSG>>(
-        impl: CHILD,
-        parent: StatePattern<PM, PMSG>,
-        toMsg: (MSG) -> PMSG) : StateBound<PM, PMSG, M, MSG, CHILD>(impl, parent, toMsg) {
-    fun view(model: M, pre: M?) = impl.view(model, pre)
-}
 
 fun <PM, PMSG, M, MSG, CHILD, PARENT> PARENT.bind(
         child: CHILD,
@@ -446,20 +427,21 @@ abstract class ElmEngine<M, MSG> : StateEngine<M, MSG>(), Viewable<M> {
         callView(myModel)
     }
 }
+
 //
 ///**
 // * For Activities having main Handler and dispatch.
 // */
-//abstract class StateBase<M, MSG>(open val me: Context?) : StateEngine<M, MSG>() {
-//    // Get a handler that can be used to post to the main thread
-//    // it is lazy since it is created after the view exist.
-//    private val mainHandler by lazy { Handler(me?.mainLooper) }
-//
-//    // cross thread communication
-//    fun postDispatch(msg: MSG) {
-//        mainHandler.post({ dispatch(msg) })
-//    }
-//}
+abstract class StateBase<M, MSG>(open val me: Context?) : StateEngine<M, MSG>() {
+    // Get a handler that can be used to post to the main thread
+    // it is lazy since it is created after the view exist.
+    val mainHandler by lazy { Handler(me?.mainLooper) }
+
+    // cross thread communication
+    protected fun post(function: () -> Unit) {
+        mainHandler.post(function)
+    }
+}
 
 
 fun Context.post(posted: () -> Unit): Boolean {
@@ -476,20 +458,9 @@ abstract class ElmBase<M, MSG>(open val me: Context?) : ElmEngine<M, MSG>() {
     val mainHandler by lazy { Handler(me?.mainLooper) }
 
     // cross thread communication
-
-//    fun postDispatch(msg: MSG) {
-//        val function = { dispatch(msg) }
-//        post(function)
-//    }
-
     protected fun post(function: () -> Unit) {
         mainHandler.post(function)
     }
-
-//    fun postDispatch() {
-//        mainHandler.post({ dispatch() })
-//    }
-
 
 }
 

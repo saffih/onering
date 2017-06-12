@@ -24,7 +24,10 @@ import android.app.ActivityManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.*
+import android.os.Handler
+import android.os.IBinder
+import android.os.Message
+import android.os.Messenger
 import android.widget.Toast
 import saffih.elmdroid.ElmBase
 
@@ -119,13 +122,6 @@ abstract class ElmMessengerService<M, MSG, API : MSG>(
     // for unbound service
     fun onStartCommand(intent: Intent?, flags: Int, startId: Int) {
         setMessenger(intent)
-        val extras = intent?.extras
-        val dbg = extras?.get("PAYLOAD") as Parcelable?
-        if (dbg != null) {
-            if (dbg is Message) {
-                handler.handleMessage(dbg)
-            }
-        }
     }
 
     private fun setMessenger(intent: Intent?): Messenger? {
@@ -136,16 +132,12 @@ abstract class ElmMessengerService<M, MSG, API : MSG>(
     }
 
     companion object {
-        fun startService(context: Context, serviceClass: Class<*>,
-                         messenger: Messenger? = null, payload: Parcelable? = null,
-                         receiver: (Intent) -> Unit = {}): Boolean {
+        fun startServiceIfNotRunning(context: Context, serviceClass: Class<*>,
+                                     messenger: Messenger? = null, receiver: (Intent) -> Unit = {}): Boolean {
             if (!context.isServiceRunning(serviceClass)) {
                 val startIntent = Intent(context, serviceClass)
                 if (messenger != null) {
                     startIntent.putExtra("MESSENGER", messenger)
-                }
-                if (payload != null) {
-                    startIntent.putExtra("PAYLOAD", payload)
                 }
                 receiver(startIntent)
                 context.startService(startIntent)
