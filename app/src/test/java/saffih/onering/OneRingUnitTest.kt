@@ -70,7 +70,7 @@
 //    }
 //
 //
-//    class App : ElmBase<Model, Msg>(me = null) {
+//    class App : ElmMachine<Model, Msg>(me = null) {
 //        override fun init(savedInstanceState: Bundle?) =
 //                //                ret(Model(A(0),B(1)))
 //                ret(Model(), Msg.Reset())

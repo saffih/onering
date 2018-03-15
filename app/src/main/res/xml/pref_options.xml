@@ -12,11 +12,24 @@
         android:summary="@string/pref_description_reply_each_request_with_status_switch"
         android:title="@string/pref_title_reply_each_request_with_status_switch" />
 
+
     <SwitchPreference
-        android:defaultValue="true"
+        android:defaultValue="false"
         android:key="make_effort_to_detect_spoofed_sms_switch"
         android:summary="@string/pref_description_make_effort_to_detect_spoofed_sms_switch"
         android:title="@string/pref_title_make_effort_to_detect_spoofed_sms_switch" />
+
+    <EditTextPreference
+        android:allowUndo="true"
+        android:defaultValue="@string/pref_provider_prefix_default_value"
+        android:inputType="phone"
+        android:key="operator_prefix"
+        android:maxLines="1"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:summary="@string/pref_description_operator_prefix"
+        android:title="@string/pref_title_operator_prefix" />
+
 
     <SwitchPreference
         android:defaultValue="true"

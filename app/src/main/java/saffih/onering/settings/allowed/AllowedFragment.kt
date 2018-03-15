@@ -5,20 +5,20 @@
 package saffih.onering.settings.allowed
 
 
-import android.app.Activity
 import android.preference.Preference
 import android.preference.PreferenceFragment
 import saffih.elmdroid.ElmChild
-import saffih.elmdroid.Que
-import saffih.elmdroid.post
+import saffih.elmdroid.checkView
 import saffih.onering.R
+import saffih.onering.service.MyPrefs
 import saffih.onering.service.phoneFormat
 import saffih.onering.service.updateAllowedList
+import saffih.onering.settings.SettingsActivity
 import saffih.tools.EditTextPrefBuilder
+import saffih.tools.post
 
 
-data class MAllowed(val lst: List<Pair<String, String>> = listOf()
-)
+data class MAllowed(val lst: List<Pair<String, String>> = listOf())
 
 data class Model(
         val fragment: PreferenceFragment? = null
@@ -38,35 +38,37 @@ sealed class Msg {
 }
 
 
-abstract class ElmPreferenceSettings(val me: Activity) : ElmChild<Model, Msg>() {
-    override fun init(): Pair<Model, Que<Msg>> = ret(Model())
-    private lateinit var last: Pair<Model, Que<Msg>>
-    private val mymodel get() = last.first
-    override fun update(msg: Msg, model: Model): Pair<Model, Que<Msg>> {
+abstract class ElmPreferenceSettings(val me: SettingsActivity) : ElmChild<Model, Msg>() {
+    override fun init(): Model = Model()
+    internal val prefs: MyPrefs  by lazy { object : MyPrefs(me) {} }
+
+    private lateinit var last: Model
+    private val mymodel get() = last
+    override fun update(msg: Msg, model: Model): Model {
         last = when (msg) {
             is Msg.Init -> {
                 // read
-                val lst = me.updateAllowedList()
-                ret(model.copy(fragment = msg.fragment,
-                        allowed = MAllowed(lst = lst)))
+                val lst = prefs.updateAllowedList()
+                model.copy(fragment = msg.fragment,
+                        allowed = MAllowed(lst = lst))
             }
 
             is Msg.Allowed -> {
-                val (m, c) = update(msg, model.allowed)
-                ret(model.copy(allowed = m), c)
+                val m = update(msg, model.allowed)
+                model.copy(allowed = m)
             }
         }
         return last
     }
 
-    private fun update(msg: Msg.Allowed, model: MAllowed): Pair<MAllowed, Que<Msg>> {
+    private fun update(msg: Msg.Allowed, model: MAllowed): MAllowed {
         val m = when (msg) {
             is Msg.Allowed.Edited ->
-                me.updateAllowedList()
+                prefs.updateAllowedList()
             is Msg.Allowed.Add ->
-                me.updateAllowedList(msg.number)
+                prefs.updateAllowedList(msg.number)
         }
-        return ret(model.copy(lst = m))
+        return model.copy(lst = m)
     }
 
     override fun view(model: Model, pre: Model?) {
@@ -127,6 +129,4 @@ abstract class ElmPreferenceSettings(val me: Activity) : ElmChild<Model, Msg>() 
             }
         }
     }
-
-//    abstract fun postDispatch(edited: Msg.Allowed.Edited)
 }

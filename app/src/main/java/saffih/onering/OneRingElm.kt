@@ -7,28 +7,27 @@ package saffih.onering
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.support.design.widget.FloatingActionButton
+import android.os.Message
 import android.support.design.widget.NavigationView
 import android.support.design.widget.Snackbar
 import android.support.v4.view.GravityCompat
 import android.support.v4.widget.DrawerLayout
 import android.support.v7.app.ActionBarDrawerToggle
-import android.support.v7.app.AppCompatActivity
-import android.support.v7.widget.Toolbar
 import android.view.MenuItem
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
-import saffih.elmdroid.ElmBase
-import saffih.elmdroid.Que
-import saffih.elmdroid.service.client.ElmMessengerServiceClient
-import saffih.elmdroid.service.client.MService
+import kotlinx.android.synthetic.main.activity_one_ring.*
+import kotlinx.android.synthetic.main.app_bar_one_ring.*
+import saffih.elmdroid.ElmMachine
+import saffih.elmdroid.checkView
+import saffih.elmdroid.service.LocalServiceClient
 import saffih.onering.mylocation.LocationActivity
-import saffih.onering.service.*
+import saffih.onering.service.MainService
+import saffih.onering.service.MyPrefs
+import saffih.onering.service.effectiveAllowedList
+import saffih.onering.service.phoneFormat
 import saffih.onering.settings.SettingsActivity
-import saffih.tools.TinyDB
-import saffih.elmdroid.service.client.Model as ClientModel
-import saffih.elmdroid.service.client.Msg as ClientMsg
 
 typealias MainMsg = saffih.onering.service.Msg
 typealias MState = saffih.onering.service.MState
@@ -88,9 +87,6 @@ sealed class Msg {
         }
     }
 
-    //    sealed class Child():Msg() {
-//        data class MainService(val smsg: MainMsg) :Child()
-//    }
     sealed class Step : Msg() {
         class Updated(val state: MState) : Step()
 
@@ -131,23 +127,18 @@ sealed class DrawerOption {
     object closed : DrawerOption()
 }
 
-class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
+class OneRingElm(val me: OneRingActivity) : ElmMachine<Model, Msg>(),
         NavigationView.OnNavigationItemSelectedListener {
 
     fun toast(txt: String, duration: Int = Toast.LENGTH_LONG) {
-//        val handler = Handler(Looper.getMainLooper())
-//        handler.
-//                post({
         Toast.makeText(me, txt, duration).show()
-//    })
     }
 
     inner class MainsElmRemoteServiceClient(me: Context) :
-            ElmMessengerServiceClient<MainMsgApi>(me, javaClassName = MainService::class.java,
-                    toApi = { it.toApi() },
-                    toMessage = { it.toMessage() }) {
+            LocalServiceClient<MainService>(me, localserviceJavaClass = MainService::class.java) {
 
-        override fun onAPI(msg: MainMsgApi) {
+        override fun onReceive(payload: Message?) {
+            val msg = payload?.obj as MainMsgApi
             when (msg) {
                 is saffih.onering.service.Msg.Api.Request.ConfChange -> {
                     toast("${msg}")
@@ -155,14 +146,12 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
             }
         }
 
-        override fun onConnected(msg: MService) {
-            super.onConnected(msg)
-
+        fun request(dbgGot: saffih.onering.service.Msg.Api.Request.Inject) {
+            bound?.app?.dispatch(dbgGot)
         }
-
-
     }
 
+    val prefs by lazy { MyPrefs(me) }
     val mainServiceClient = MainsElmRemoteServiceClient(me)
 
 /*
@@ -181,110 +170,111 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
         super.onDestroy()
     }
 
-    override fun init(): Pair<Model, Que<Msg>> {
-        return ret(Model(), Msg.Init())
+    override fun init(): Model {
+        dispatch(Msg.Init())
+        return Model()
     }
 
-    override fun update(msg: Msg, model: Model): Pair<Model, Que<Msg>> {
+    override fun update(msg: Msg, model: Model): Model {
         return when (msg) {
             is Msg.Init -> {
-                ret(model)
+                model
             }
 //            is Msg.Child.MainService -> {
 //                val (m,c) = update(msg, model.state)
-//                ret(model.copy(state = m), c)
+//                model.copy(state = m)
 //            }
             is Msg.Activity -> {
-                val (m, q) = update(msg, model.activity)
-                ret(model.copy(activity = m), q)
+                val m = update(msg, model.activity)
+                model.copy(activity = m)
             }
             is Msg.Step.Updated -> {
-                ret(model.copy(state = msg.state))
+                model.copy(state = msg.state)
             }
         }
     }
 
-//    private fun  update(msg: Msg.Child.MainService, model: MState): Pair<MState, Que<Msg>> {
+//    private fun  update(msg: Msg.Child.MainService, model: MState) : MState {
 //
 //        val (m,c) = mainServiceClient.update(msg.smsg, model)
 //
-//        return ret(model)
+//        return model)
 //    }
 
-//    fun update(msg: Msg, model: MActivity): Pair<MActivity, Que<Msg>> {
+//    fun update(msg: Msg, model: MActivity) : MActivity {
 //        return when (msg) {
 //            is Msg.Init -> {
-//                ret(model)
+//                model)
 //            }
 //            is Msg.Activity -> {
 //                Snackbar.make(msg.view, "Exit", Snackbar.LENGTH_LONG)
 //                        .setAction("Finish", { me.finish() }).show()
-//                ret(model)
+//                model)
 //            }
 //            is Msg.Activity.Option -> {
-//                val (m, q) = update(msg, model.options)
-//                ret(model.copy(options = m), q)
+//                val m = update(msg, model.options)
+//                model.copy(options = m)
 //            }
 //            is Msg.Activity.Action.OpenTwitter -> {
 //                val name = msg.name
 //                me.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://twitter.com/${name}")))
-//                ret(model)
+//                model)
 //            }
 //            is Msg.Activity.Action.UIToast -> {
 //                msg.show(me)
-//                ret(model)
+//                model)
 //            }
 //            is Msg.Child.MainService -> TODO()
 //        }
 //    }
 
-    fun update(msg: Msg.Activity, model: MActivity): Pair<MActivity, Que<Msg>> {
+    fun update(msg: Msg.Activity, model: MActivity): MActivity {
         return when (msg) {
             is Msg.Activity.Fab.Clicked -> {
                 Snackbar.make(msg.view, "Exit", Snackbar.LENGTH_LONG)
                         .setAction("Finish", { me.finish() }).show()
-                ret(model)
+                model
             }
             is Msg.Activity.Option -> {
-                val (m, q) = update(msg, model.options)
-                ret(model.copy(options = m), q)
+                val m = update(msg, model.options)
+                model.copy(options = m)
             }
             is Msg.Activity.Action.OpenTwitter -> {
                 val name = msg.name
                 me.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://twitter.com/${name}")))
-                ret(model)
+                model
             }
             is Msg.Activity.Action.UIToast -> {
                 msg.show(me)
-                ret(model)
+                model
             }
             is Msg.Activity.Action.ShowLocation -> {
                 me.startActivity(
                         Intent(me, LocationActivity::class.java))
-                ret(model)
+                model
             }
         }
     }
 
-    fun update(msg: Msg.Activity.Option, model: MOptions): Pair<MOptions, Que<Msg>> {
+    fun update(msg: Msg.Activity.Option, model: MOptions): MOptions {
         return when (msg) {
             is Msg.Activity.Option.ItemSelected -> {
-                val (m, c) = update(msg, model.itemOption)
-                ret(model.copy(itemOption = m), c)
+                val m = update(msg, model.itemOption)
+                model.copy(itemOption = m)
             }
             is Msg.Activity.Option.Navigation -> {
-                val (m, c) = update(msg, model.navOption)
-                ret(model.copy(navOption = m), c)
+                val m = update(msg, model.navOption)
+                model.copy(navOption = m)
             }
             is Msg.Activity.Option.Drawer -> {
-                val (m, c) = update(msg, model.drawer)
-                ret(model.copy(drawer = m), c)
+                val m = update(msg, model.drawer)
+                model.copy(drawer = m)
             }
         }
     }
 
-    private fun update(msg: Msg.Activity.Option.ItemSelected, model: MItemOption): Pair<MItemOption, Que<Msg>> {
-//         return ret(tickets)
+    private fun update(msg: Msg.Activity.Option.ItemSelected, model: MItemOption): MItemOption {
+//         return tickets)
         val item = msg.item
         // Handle action bar item clicks here. The action bar will
         // automatically handle clicks on the Home/Up button, so long
@@ -295,14 +285,14 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
             ItemOption.settings -> {
                 me.startActivity(
                         Intent(me, SettingsActivity::class.java))
-                ret(MItemOption(item = selected))
+                MItemOption(item = selected)
             }
-            else -> ret(model.copy(handled = false))
+            else -> model.copy(handled = false)
         }
     }
 
-    private fun update(msg: Msg.Activity.Option.Navigation, model: MNavOption): Pair<MNavOption, Que<Msg>> {
-        //        return ret(tickets)
+    private fun update(msg: Msg.Activity.Option.Navigation, model: MNavOption): MNavOption {
+        //        return tickets)
         val item = msg.item
         // Handle navigation view item clicks here.
         val id = item.itemId
@@ -310,41 +300,44 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
         val close = Msg.Activity.Option.Drawer(DrawerOption.closed)
         return if (nav == null) {
             // dispatch(Msg.Option.Log(DrawerOption.closed))
-            ret(model.copy(nav = null), close)
+            dispatch(close)
+            model.copy(nav = null)
         } else {
             when (nav) {
                 NavOption.Location -> {
+                    dispatch(close)
                     me.startActivity(
                             Intent(me, LocationActivity::class.java))
-                    ret(model, close)
+                    model
                 }
                 NavOption.Send -> {
-                    val allowedList = me.effectiveAllowedList()
+                    val allowedList = prefs.effectiveAllowedList()
                     if (!allowedList.isEmpty()) {
                         val sendTo = allowedList[0].phoneFormat()
                         toast(" Sending location to $sendTo")
                         mainServiceClient.request(MainMsgApi.dbgGot(sendTo, "1ring"))
-                        if (TinyDB(me).getBoolean("openmap_switch")) {
+                        if (prefs.get("openmap_switch", true)) {
                             me.startActivity(
                                     Intent(me, LocationActivity::class.java))
                         }
-
-                        ret(model, close)//listOf(close, Msg.Activity.Action.ShowLocation()))
+                        dispatch(close)
+                        //listOf(close, Msg.Activity.Action.ShowLocation()))
+                        model
                     } else {
                         toast(" No filtering by calling number. Unsecured !!! please assign and enable in the settings.")
-                        ret(model)
+                        model
                     }
                 }
-                else -> ret(model)
+                else -> model
             }
 
         }
     }
 
-    fun update(msg: Msg.Activity.Option.Drawer, model: MDrawer): Pair<MDrawer, Que<Msg>> {
+    fun update(msg: Msg.Activity.Option.Drawer, model: MDrawer): MDrawer {
         return when (msg.item) {
-            DrawerOption.opened -> ret(model.copy(i = DrawerOption.opened))
-            DrawerOption.closed -> ret(model.copy(i = DrawerOption.closed))
+            DrawerOption.opened -> model.copy(i = DrawerOption.opened)
+            DrawerOption.closed -> model.copy(i = DrawerOption.closed)
         }
     }
 
@@ -370,7 +363,7 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
 
     private fun view(model: MToolbar, pre: MToolbar?) {
         val setup = {
-            val toolbar = me.findViewById(R.id.toolbar) as Toolbar
+            val toolbar = me.toolbar
             me.setSupportActionBar(toolbar)
         }
         checkView(setup, model, pre) {
@@ -380,7 +373,7 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
 
     private fun view(model: MFab, pre: MFab?) {
         val setup = {
-            val fab = me.findViewById(R.id.fab) as FloatingActionButton
+            val fab = me.fab
             fab.setOnClickListener { view -> dispatch(Msg.Activity.Fab.Clicked(view)) }
         }
 
@@ -399,7 +392,7 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
 
     private fun view(model: MOptions, pre: MOptions?) {
         val setup = {
-            val navigationView = me.findViewById(R.id.nav_view) as NavigationView
+            val navigationView = me.nav_view
             navigationView.setNavigationItemSelectedListener(this)
         }
         checkView(setup, model, pre) {
@@ -411,15 +404,17 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
 
     private fun view(model: MDrawer, pre: MDrawer?) {
         val setup = {
-            val drawer = me.findViewById(R.id.drawer_layout) as DrawerLayout
-            val navView = me.findViewById(R.id.nav_view) as NavigationView
+            val drawer = me.drawer_layout
+            val navView = me.nav_view
             val parentLayout = navView.getHeaderView(0)
-            val nameView = parentLayout.findViewById(R.id.creatorNameView) as TextView
+
+            val nameView = parentLayout.findViewById<TextView>(R.id.creatorNameView)
+//            val nameView = me.creatorNameView // parentLayout.findViewById(R.id.creatorNameView) as TextView
             val name = me.resources.getString(R.string.twitter_account)
             nameView.text = "@" + name
             nameView.setOnClickListener { view -> dispatch(Msg.Activity.Action.OpenTwitter(name)) }
 
-            val toolbar = me.findViewById(R.id.toolbar) as Toolbar
+            val toolbar = me.toolbar
 
             val toggle = ActionBarDrawerToggle(
                     me, drawer, toolbar, R.string.navigation_drawer_open, R.string.navigation_drawer_close)
@@ -437,7 +432,7 @@ class OneRingElm(override val me: AppCompatActivity) : ElmBase<Model, Msg>(me),
         }
 
         checkView(setup, model, pre) {
-            val drawer = me.findViewById(R.id.drawer_layout) as DrawerLayout
+            val drawer = me.drawer_layout
             when (model.i) {
                 DrawerOption.opened -> drawer.openDrawer(GravityCompat.START)
                 DrawerOption.closed -> drawer.closeDrawer(GravityCompat.START)

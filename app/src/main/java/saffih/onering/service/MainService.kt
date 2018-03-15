@@ -14,23 +14,20 @@ import android.location.Location
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Message
-import android.support.v7.app.NotificationCompat
+import android.preference.PreferenceManager
+import android.support.v4.app.NotificationCompat
+import android.telephony.SmsManager
 import android.telephony.SmsMessage
-import android.telephony.TelephonyManager
-import android.widget.Toast
-import saffih.elmdroid.Que
-import saffih.elmdroid.StateBase
-import saffih.elmdroid.bindState
-import saffih.elmdroid.gps.child.GpsChild
+import saffih.elmdroid.StateMachine
+import saffih.elmdroid.gps.child.LocationRegisterHelper
 import saffih.elmdroid.service.ElmMessengerService.Companion.startServiceIfNotRunning
 import saffih.elmdroid.service.LocalService
-import saffih.elmdroid.sms.child.MSms
-import saffih.elmdroid.sms.child.SmsChild
 import saffih.onering.OneRingActivity
 import saffih.onering.R
+import saffih.onering.SMSReceiverAdapter
 import saffih.onering.mylocation.LocationActivity
-import saffih.tools.TinyDB
+import saffih.tools.Prefs
+import saffih.tools.toast
 import java.util.*
 
 
@@ -38,47 +35,39 @@ import java.util.*
  * Copyright Joseph Hartal (Saffi)
  * Created by saffi on 9/05/17.
  */
-// "imports"
-typealias GpsMsg = saffih.elmdroid.gps.child.Msg
-typealias GpsMsgApi = saffih.elmdroid.gps.child.Msg.Api
-typealias GpsModel = saffih.elmdroid.gps.child.Model
-
-typealias SmsMsg = saffih.elmdroid.sms.child.Msg
-//typealias SmsMsgApi = saffih.elmdroid.sms.child.Msg.Api
-typealias SmsModel = saffih.elmdroid.sms.child.Model
-typealias MSms = saffih.elmdroid.sms.child.MSms
 
 
+open class MyPrefs(private val context: Context) : Prefs(context) {
+    override fun defaultInit() {
+        super.defaultInit()
+        PreferenceManager.setDefaultValues(context, R.xml.pref_options, true)
+    }
+}
 
-fun Context.effectiveAllowedList(): List<String> {
-    val tinydb = TinyDB(this)
-    if (!tinydb.getBoolean("use_whitelist")) return listOf()
+
+fun MyPrefs.effectiveAllowedList(): List<String> {
+    if (!get("use_whitelist", false)) return listOf()
     return getAllowedList()
 }
 
-fun Context.getAllowedList(): List<String> {
-    val tinydb = TinyDB(this)
+fun MyPrefs.getAllowedList(): List<String> {
     val key = "allowed_list"
-    return tinydb.getStrings(key).filter { it != "" }.toSet().toList()
+    return getStrings(key).filter { it != "" }.toSet().toList()
 }
 
-fun Context.updateAllowedList(added: String = ""): List<Pair<String, String>> {
-    val tinydb = TinyDB(this)
+fun MyPrefs.updateAllowedList(added: String = ""): List<Pair<String, String>> {
     val key = "allowed_list"
-    val values = tinydb.getStrings(key)
+    val values = getStrings(key)
     val shrinked = (values + added).filter { it != "" }.toSet().toList()
-    tinydb.putStrings(key, shrinked)
+    putStrings(key, shrinked)
 
-    return tinydb.getStringsItems(key)
+    return getStringsItems(key)
 }
 
 data class Model(
-        val gps: GpsModel = GpsModel(),
-        val sms: SmsModel = SmsModel(),
         val api: MApi = MApi(),
         val state: MState = MState()
 )
-
 
 data class MState(val tickets: MTickets = MTickets(),
                   val conf: MConf = MConf()
@@ -86,8 +75,25 @@ data class MState(val tickets: MTickets = MTickets(),
 
 data class MConf(val allowFrom: MWhiteList = MWhiteList())
 
-data class MWhiteList(val allowed: List<String> = listOf()) {
-    val lookup by lazy { allowed.toSet() }
+data class MWhiteList(val allowed: List<String> = listOf())
+
+fun MConf.numberPassedFilter(number: String): Boolean {
+    val endwith = number.cleanPhoneNumber().takeLast(7)
+    val whitelist = this.allowFrom.allowed.map { it.cleanPhoneNumber().takeLast(7) }
+    val passed = whitelist.isEmpty() || whitelist.contains(endwith)
+    return passed
+}
+
+
+private fun wordMatch(txt: String): Boolean {
+    val word = when (txt.trim().toLowerCase()) {
+        "wru" -> true
+        "1ring" -> true
+        else -> {
+            false
+        }
+    }
+    return word
 }
 
 class MApi
@@ -125,6 +131,8 @@ data class MTicket(val number: String,
     }
 }
 
+data class MSms(val address: String, val text: String)
+
 data class MSmsMessage(val number: String, val body: String, val center: String) {
     constructor (sms: SmsMessage) : this(sms.originatingAddress, sms.messageBody, sms.serviceCenterAddress ?: "")
 }
@@ -134,8 +142,6 @@ sealed class Msg {
     fun isReply() = this is Msg.Api.Reply
 
     object Init : Msg()
-    sealed class Response : Msg()
-
 
     sealed class Step : Msg() {
         data class ConfChange(val conf: MConf) : Step()
@@ -146,17 +152,16 @@ sealed class Msg {
         sealed class Ticket : Step() {
             data class Open(val sms: MSmsMessage) : Ticket()
             data class Reply(val locationMessage: String) : Ticket()
-//            data class Close(val ticket: MTicket) : Ticket()
 
         }
 
         class GotLocation(val location: Location) : Step()
     }
-
-    sealed class Child : Msg() {
-        data class Gps(val smsg: GpsMsg) : Child()
-        data class Sms(val smsg: SmsMsg) : Child()
-    }
+//
+//    sealed class Child : Msg() {
+////        data class Gps(val smsg: GpsMsg) : Child()
+//        data class Sms(val smsg: SmsMsg) : Child()
+//    }
 
 
     sealed class Api : Msg() {
@@ -179,242 +184,162 @@ sealed class Msg {
         }
 
     }
-
-
-//    companion object{
-//        fun gpsRequest() = Msg.Child.Gps(
-//            saffih.elmdroid.gps.child.Msg.Api.Request.Location())
-//    }
 }
 
-//data class MyParcelable(val data1: String, val data2: String) : DefaultParcelable {
-//    override fun writeToParcel(dest: Parcel, flags: Int) { dest.write(data1, data2) }
-//    companion object { @JvmField final val CREATOR = DefaultParcelable.generateCreator { MyParcelable(it.read(), it.read()) } }
+
+private fun Context.unmute() {
+    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    try {
+
+        audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
+    } catch (e: SecurityException) {
+        toast("Please allow getting out of do not disturb")
+    }
+}
+
+private fun Context.maxVolume() {
+    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_RING)
+
+    unmute()
+    audioManager.setStreamVolume(AudioManager.STREAM_RING, maxVolume, AudioManager.FLAG_SHOW_UI + AudioManager.FLAG_PLAY_SOUND)
+}
+
+//enum class API {
+//    RequestConfChange,
+//    StateChange,
+//    INJECT, UpdateForegroundNotification
 //}
 
-enum class API {
-    RequestConfChange,
-    StateChange,
-    INJECT, UpdateForegroundNotification
-}
-
-fun Message.toApi(): Msg.Api {
-    return when (this.what) {
-        API.RequestConfChange.ordinal -> Msg.Api.confChange(this.obj as MConf)
-        API.StateChange.ordinal -> Msg.Api.Reply.Updated(this.obj as Model)
-        API.INJECT.ordinal -> Msg.Api.Request.Inject(this.obj as Msg)
-        API.UpdateForegroundNotification.ordinal -> Msg.Api.Request.UpdateForegroundNotification()
-        else -> {
-            throw RuntimeException("${this} has no 'what' value set")
-        }
-    }
-}
-
-fun Msg.Api.toMessage(): Message {
-    return when (this) {
-        is Msg.Api.Reply.Updated -> Message.obtain(null, API.StateChange.ordinal, this.model)
-        is Msg.Api.Request.ConfChange -> Message.obtain(null, API.RequestConfChange.ordinal, this.conf)
-        is Msg.Api.Request.Inject -> Message.obtain(null, API.INJECT.ordinal, this.msg)
-        is Msg.Api.Request.UpdateForegroundNotification -> Message.obtain(null, API.UpdateForegroundNotification.ordinal)
-    }
-}
-
-//class MainServiceElm(override val me: Service) : ElmMessengerService<Model, Msg, Msg.Api>(me,
-//        toApi = { it.toApi() },
-//        toMessage = { it.toMessage() },
-//        debug = true) {
-class MainServiceElm(override val me: Service) : StateBase<Model, Msg>(me) {
-    val debug = true
-    fun toast(txt: String, duration: Int = Toast.LENGTH_SHORT) {
-        if (!debug) return
-        post({ Toast.makeText(me, txt, duration).show() })
-    }
-
-    private val gps = bindState(object : GpsChild(me) {
-//        override fun view(model: saffih.elmdroid.gps.child.Model, pre: saffih.elmdroid.gps.child.Model?) {
-//            TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+//fun Message.toApi(): Msg.Api {
+//    return when (this.what) {
+//        API.RequestConfChange.ordinal -> Msg.Api.confChange(this.obj as MConf)
+//        API.StateChange.ordinal -> Msg.Api.Reply.Updated(this.obj as Model)
+//        API.INJECT.ordinal -> Msg.Api.Request.Inject(this.obj as Msg)
+//        API.UpdateForegroundNotification.ordinal -> Msg.Api.Request.UpdateForegroundNotification()
+//        else -> {
+//            throw RuntimeException("${this} has no 'what' value set")
 //        }
+//    }
+//}
 
-        override fun onLocationChanged(location: Location) {
-            post { dispatch(Msg.Step.GotLocation(location)) }
-        }
-    }) { Msg.Child.Gps(it) }
+class MainServiceElm(val me: Service) : StateMachine<Model, Msg>() {
 
-    private val sms = bindState(object : SmsChild(me) {
-        override fun onSmsArrived(sms: List<SmsMessage>) {
-            val pending = sms.map { Msg.Step.GotSms(MSmsMessage(it)) }
-            post { dispatch(pending) }
-        }
-    }) { Msg.Child.Sms(it) }
+    fun onSmsArrived(sms: List<SmsMessage>) {
+        val pending = sms.map { Msg.Step.GotSms(MSmsMessage(it)) }
+        dispatch(pending)
+    }
 
-    //    private fun getCountry():String{
-//
-//        return telephonyManager.simCountryIso
-//        return telephonyManager.networkCountryIso
+    val prefs by lazy { MyPrefs(me) }
+
+//    override fun onCreate() {
+//        super.onCreate()
 //    }
 
-
     override fun onDestroy() {
-        gps.onDestroy()
-        sms.onDestroy()
+        locationBind.unregister()
+        smsReceiver.meUnregister(me)
         super.onDestroy()
 
     }
 
-    override fun onCreate() {
-        super.onCreate()
-        // the init initialize it.
-//        gps.onCreate()
-//        sms.onCreate()
 
-    }
+    override fun init(): Model {
+        val lst = prefs.getStrings("allowed_list")
+        bindPrefListener()
+        bindSmsListener()
 
-//    private val sms = bindState(object:SmsChild(me}{}) { Msg.Child.Sms(it) }
-
-    fun settingChange(lst: List<String>): MConf {
-        val conf = myModel.state.conf
-        conf.copy(allowFrom = conf.allowFrom.copy(allowed = lst))
-        return conf
-    }
-
-    override fun init(): Pair<Model, Que<Msg>> {
-        val (gm, gc) = gps.init()
-        val (sm, sc) = sms.init()
-        val db = TinyDB(me)
-        val lst = db.getStrings("allowed_list")
-        db.preferences.registerOnSharedPreferenceChangeListener { sharedPreferences, key ->
-            if (key == "allowed_list") {
-                val lst2 = db.getStrings("allowed_list")
-                dispatch(Msg.Step.ConfChange(settingChange(lst2)))
-            }
-        }
         val state = MState(conf = MConf(allowFrom = MWhiteList(lst)))
-        return ret(Model().copy(gps = gm, sms = sm, state = state), Que(listOf(Msg.Init))
-                + gc.map { Msg.Child.Gps(it) }
-                + sc.map { Msg.Child.Sms(it) }
-        )
+        dispatch(Msg.Init)
+        return Model().copy(
+                state = state)
     }
 
-//    val dbhelper = AllowedHelper(me)
 
-    override fun update(msg: Msg, model: Model): Pair<Model, Que<Msg>> {
+    override fun update(msg: Msg, model: Model): Model {
         return when (msg) {
 
             Msg.Init -> {
-                sms.impl.onCreate()
-//                ret(load(model))
-                ret(model)
-//                ret(model)
-            }
-            is Msg.Child.Gps -> {
-                val (m, c) = gps.update(msg.smsg, model.gps)
-                ret(model.copy(gps = m), c)
-            }
-            is Msg.Child.Sms -> {
-                val (m, c) = sms.update(msg.smsg, model.sms)
-                ret(model.copy(sms = m), c)
+                model
             }
             is Msg.Api -> {
-                val (m, c) = update(msg, model.api)
-                ret(model.copy(api = m), c)
+                val m = update(msg, model.api)
+                model.copy(api = m)
             }
             is Msg.Step -> {
-                val (m, c) = update(msg, model.state)
-                ret(model.copy(state = m), c)
+                val m = update(msg, model.state)
+                model.copy(state = m)
             }
 
         }
     }
 
 
-    private fun numberPassedFilter(model: MState, number: String): Boolean {
-        val endwith = number.cleanPhoneNumber().takeLast(7)
-        val whitelist = model.conf.allowFrom.allowed.
-                map { it.cleanPhoneNumber().takeLast(7) }
-        val passed = whitelist.isEmpty() || whitelist.contains(endwith)
-        return passed
-    }
+//    private fun numberPassedFilter(model: MState, number: String): Boolean {
+//        val endwith = number.cleanPhoneNumber().takeLast(7)
+//        val whitelist = model.conf.allowFrom.allowed.
+//                map { it.cleanPhoneNumber().takeLast(7) }
+//        val passed = whitelist.isEmpty() || whitelist.contains(endwith)
+//        return passed
+//    }
+//    val telephonyManager get () = me.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
 
-    val telephonyManager get () = me.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
 
-
-    private fun update(msg: Msg.Step, model: MState): Pair<MState, Que<Msg>> {
+    private fun update(msg: Msg.Step, model: MState): MState {
         return when (msg) {
             is Msg.Step.ConfChange -> {
                 val m = model.copy(conf = msg.conf)
-//                save(model)
-                ret(m)
+                m
             }
             is Msg.Step.GotSms -> {
                 val sms = msg.sms
                     if (passedCheck(model, sms)) {
                         toast("got Request ${sms}")
-                        ret(model, Msg.Step.Ticket.Open(sms))
+                        dispatch(Msg.Step.Ticket.Open(sms))
+                        model
                     } else {
-                        if (wordMatch(sms)) {
+                        if (wordMatch(sms.body)) {
                             toast("Ignored sms from ${sms.number}")
                         }
-                        ret(model)
+                        model
                     }
             }
             is Msg.Step.Ticket -> {
-                val (m, c) = update(msg, model.tickets)
-                ret(model.copy(tickets = m), c)
+                val m = update(msg, model.tickets)
+                model.copy(tickets = m)
             }
             is Msg.Step.GotLocation -> {
-                if (TinyDB(me).getBoolean("openmap_switch")) {
+                if (prefs.get("openmap_switch", true)) {
                     startShowLocation(msg.location)
                 }
-                val lat = msg.location.latitude
-                val lon = msg.location.longitude
-                val url = "http://maps.google.com/?q=${lat},${lon}"
-                ret(model, Msg.Step.Ticket.Reply("current location: ${url}"))
+                val replyText = buildReplyText(msg)
+                dispatch(Msg.Step.Ticket.Reply(replyText))
+                model
             }
         }
     }
 
-    private fun spoofed(sms: MSmsMessage): Boolean {
-        try {
-            if (TinyDB(me).getBoolean("make_effort_to_detect_spoofed_sms_switch")) {
-                val yourNumber = telephonyManager.line1Number
-                if (telephonyManager.isNetworkRoaming) {
-                    if (yourNumber.length > 4) {
-                        val prefix = yourNumber.slice(0..4)
-                        if (!sms.center.startsWith(prefix)) {
-                            toast(" suspect spoofing! got sms from center ${sms.center}. expected prefix ${prefix}")
-                            return true
-                        }
-                    }
-                }
-            }
-        } catch (e: RuntimeException) {
-            toast("Bug checking service center." + e)
-        }
-        return false
+    private fun buildReplyText(msg: Msg.Step.GotLocation): String {
+        val lat = msg.location.latitude
+        val lon = msg.location.longitude
+        val url = "http://maps.google.com/?q=${lat},${lon}"
+        val replyText = "current location: ${url}"
+        return replyText
     }
+
 
     private fun passedCheck(model: MState, sms: MSmsMessage): Boolean {
 //        make_effort_to_detect_spoofed_sms_switch
-        val word = wordMatch(sms)
-        return word && (numberPassedFilter(model, sms.number))
+        val word = wordMatch(sms.body)
+        return word && (model.conf.numberPassedFilter(sms.number))
     }
 
-    private fun wordMatch(sms: MSmsMessage): Boolean {
-        val word = when (sms.body.trim().toLowerCase()) {
-            "wru" -> true
-            "1ring" -> true
-            else -> {
-                false
-            }
-        }
-        return word
-    }
 
-    private fun update(msg: Msg.Step.Ticket, model: MTickets): Pair<MTickets, Que<Msg>> {
+    private fun update(msg: Msg.Step.Ticket, model: MTickets): MTickets {
         val m = checkAddNewTicket(msg, model)
 
-        val (tickets, c) = update(msg, m.tickets, this::updateTicket)
-        return ret(model.copy(tickets = tickets, lookup = m.lookup), c)
+        val tickets = update(msg, m.tickets, this::updateTicket)
+        return model.copy(tickets = tickets, lookup = m.lookup)
     }
 
     private fun checkAddNewTicket(msg: Msg.Step.Ticket, model: MTickets): MTickets {
@@ -434,94 +359,68 @@ class MainServiceElm(override val me: Service) : StateBase<Model, Msg>(me) {
         } else model
     }
 
-    private fun unmute() {
-        val audioManager = me.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-//        val zenModeValue = Settings.Global.getInt(me.getContentResolver(), "zen_mode")
-        try {
 
-            audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
-        } catch(e: SecurityException) {
-            toast("Please allow getting out of do not disturb")
-        }
-    }
-
-    private fun maxVolume() {
-        val audioManager = me.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_RING)
-
-        unmute()
-        audioManager.setStreamVolume(AudioManager.STREAM_RING, maxVolume, AudioManager.FLAG_SHOW_UI + AudioManager.FLAG_PLAY_SOUND)
-    }
-
-    private fun updateTicket(msg: Msg.Step.Ticket, model: MTicket): Pair<MTicket, Que<Msg>> {
+    private fun updateTicket(msg: Msg.Step.Ticket, model: MTicket): MTicket {
         return when (msg) {
 
             is Msg.Step.Ticket.Open -> {
                 if (!model.match(msg.sms.number))
-                    ret(model)
+                    model
                 else {
                     // check if already in progress - escalate.
-                    val c = Msg.Child.Gps(GpsMsgApi.locate())
+                    locationBind.register()
+                    val queryDate = model.queryDate
                     val now = Date()
-                    val escalateFlag = if (
-                    (model.queryDate != null)) {
-                        ((now.time - model.queryDate.time) / 1000 < 30)
-                    } else false
+                    val escalateFlag = within30Sec(queryDate, now)
                     val escalate = if (escalateFlag) model.escalate.next() else TicketEscalate.ping
-                    val pong = if (spoofed(msg.sms)) {  // spoofed can't escalte and response sent to real number
+                    val pong = if (spoofedDetected(msg.sms)) {  // spoofedDetected can't escalte and response sent to real number
                         startOneRing("ping")
-                        "Suspect spoofed ... ${msg.sms}"
+                        "Suspect spoofedDetected ... ${msg.sms}"
                     } else when (escalate) {
                         TicketEscalate.ping -> {
                             startOneRing("ping")
-//                            GoogleApiClient.Builder(me)
-//                                    .addApi(LocationServices.API)
-//                                    .addConnectionCallbacks(this)
-//                                    .addOnConnectionFailedListener(this)
-//                                    .build()
                             "Searching..."
                         }
                         TicketEscalate.unmute -> {
-                            unmute()
+                            me.unmute()
                             val txt = "Unmuted"
                             toast(txt)
                             txt
                         }
                         TicketEscalate.screem -> {
-                            maxVolume()
+                            me.maxVolume()
                             val txt = "Volume set to max"
                             toast(txt)
                             txt
                         }
                     }
-                    if (TinyDB(me).getBoolean("reply_each_request_with_status_switch")) {
-                        sms.impl.sendSms(MSms(model.number, pong))
+                    if (Prefs(me).get("reply_each_request_with_status_switch", true)) {
+                        sendSms(MSms(model.number, pong))
                     }
-                    ret(model.copy(
+                    model.copy(
                             status = TicketStatus.opened,
                             queryDate = now,
-                            escalate = escalate), c)
+                            escalate = escalate)
                 }
             }
 
             is Msg.Step.Ticket.Reply -> {
                 if (model.status != TicketStatus.opened) {
-                    ret(model)
+                    model
                 } else {
                     // once we do processing inside then we would use a message.
-                    sms.impl.sendSms(MSms(model.number, msg.locationMessage))
-//                    startShowLocation(msg.locationMessage)
-                    //                val c = Msg.Child.Sms(SmsMsgApi.sms(destinationAddress = model.number, text=msg.locationMessage))
-                    ret(model.copy(status = TicketStatus.closed))
-                    //, listOf( Msg.Step.Ticket.Close(model)) )
+                    sendSms(MSms(model.number, msg.locationMessage))
+                    model.copy(status = TicketStatus.closed)
                 }
             }
-//            is Msg.Step.Ticket.Close -> {// removed
-//                if (model==)
-//                toast("ticket closed")
-//                ret(model.copy(status = TicketStatus.closed))
-//            }
         }
+    }
+
+    private fun within30Sec(queryDate: Date?, now: Date): Boolean {
+        return if (
+                (queryDate != null)) {
+            (Math.abs(now.time - queryDate.time) / 1000 < 30)
+        } else false
     }
 
     private fun startOneRing(action: String) {
@@ -547,30 +446,111 @@ class MainServiceElm(override val me: Service) : StateBase<Model, Msg>(me) {
     /**
      * Communicate with Activity
      */
-    private fun update(msg: Msg.Api, model: MApi): Pair<MApi, Que<Msg>> {
+    private fun update(msg: Msg.Api, model: MApi): MApi {
         return when (msg) {
             is Msg.Api.Request -> {
                 when (msg) {
-                    is Msg.Api.Request.ConfChange -> ret(model, Msg.Step.ConfChange(msg.conf))
+                    is Msg.Api.Request.ConfChange -> {
+                        dispatch(Msg.Step.ConfChange(msg.conf))
+                        model
+                    }
                     is Msg.Api.Request.Inject -> {
-                        ret(model, msg.msg)
+                        dispatch(msg.msg)
+                        model
                     }
                     is Msg.Api.Request.UpdateForegroundNotification -> {
                         (me as MainService).updateForegroundState()
-                        ret(model)
+                        model
                     }
                 }
             }
+
             is Msg.Api.Reply -> {
                 when (msg) {
                     is Msg.Api.Reply.Updated -> {
                         // ack - the parent already had dispatched with the replies
-                        ret(model)
+                        model
                     }
-
                 }
             }
         }
+    }
+
+
+    private fun spoofedDetected(sms: MSmsMessage): Boolean {
+        try {
+            if (prefs.get("make_effort_to_detect_spoofed_sms_switch", false)) {
+                val prefix = prefs.get("operator_prefix", "")
+//                val yourNumber = telephonyManager.line1Number
+//                if (telephonyManager.isNetworkRoaming) {
+//                    if (yourNumber.length > 4) {
+//                        val prefix = yourNumber.slice(0..4)
+                if (!sms.center.startsWith(prefix)) {
+                    toast(" suspect spoofing! got sms from center ${sms.center}. expected prefix ${prefix}")
+                    return true
+                }
+//                    }
+//                }
+            }
+        } catch (e: RuntimeException) {
+            toast("Bug checking service center." + e)
+        }
+        return false
+    }
+
+    private fun bindSmsListener() {
+        smsReceiver.meRegister(me)
+    }
+
+    /**
+     * location listener that unregisters itself when done
+     */
+    val locationBind = object : LocationRegisterHelper(me) {
+        override fun onLocationChanged(loc: Location) {
+            dispatch(Msg.Step.GotLocation(loc))
+            unregister()
+        }
+    }
+
+    /**
+     * sms listener  for checking every incomming sms
+     */
+    val smsReceiver = SMSReceiverAdapter(
+            hook = { arr: Array<out SmsMessage?> -> onSmsArrived(arr.filterNotNull()) })
+
+    val smsManager = SmsManager.getDefault()
+    /**
+     * sms send method for replying
+     */
+    fun sendSms(data: MSms) {
+        smsManager.sendTextMessage(
+                data.address,
+                null,
+                data.text, null, null)
+    }
+
+    private fun bindPrefListener() {
+        prefs.preferences.registerOnSharedPreferenceChangeListener { sharedPreferences, key ->
+            if (key == "allowed_list") {
+                val lst2 = prefs.getStrings("allowed_list")
+                dispatch(Msg.Step.ConfChange(settingChangePayloadBy(lst2)))
+            }
+        }
+    }
+
+    fun settingChangePayloadBy(lst: List<String>): MConf {
+        val conf = myModel.state.conf
+        conf.copy(allowFrom = conf.allowFrom.copy(allowed = lst))
+        return conf
+    }
+
+    val debug = true
+    /**
+     * toast in debug
+     */
+    fun toast(txt: String) {
+        if (!debug) return
+        me.toast(txt)
     }
 
 
@@ -594,9 +574,8 @@ private fun startServiceIfNotRunning(context: Context) {
 class MainService : LocalService() {
     val app = MainServiceElm(this)
 
-
     fun updateForegroundState() {
-        val shouldBe = TinyDB(this).getBoolean("foreground_service_and_notification_switch")
+        val shouldBe = app.prefs.get("foreground_service_and_notification_switch", true)
         updateForegroundState(shouldBe)
     }
 
@@ -605,13 +584,15 @@ class MainService : LocalService() {
             runAsForeground()
         } else {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(R.id.notification_background)
+                stopForeground(true)
                 val notificationManager =
                         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 notificationManager.cancel(R.id.notification_background)
             }
         }
     }
+
+    private val channel1ring: String = "1ring channel"
 
     // not used
     private fun runAsForeground() {
@@ -624,7 +605,7 @@ class MainService : LocalService() {
 
         val intent = PendingIntent.getActivity(this, 0, notificationIntent, 0)
 
-        val notification = NotificationCompat.Builder(this)
+        val notification = NotificationCompat.Builder(this, channel1ring)
                 .setSmallIcon(R.drawable.ic_1ring_notification)
                 .setContentText(getString(R.string.app_name))
                 .setContentIntent(intent)
@@ -649,16 +630,13 @@ class MainService : LocalService() {
 
     }
 
-//    override fun onBind(intent: android.content.Intent): android.os.IBinder {
-//        return app.onBind(intent)
-//    }
 
     override fun onCreate() {
         super.onCreate()
-        if (TinyDB(this).getBoolean("foreground_service_and_notification_switch")) {
+        app.onCreate()
+        if (app.prefs.get("foreground_service_and_notification_switch", true)) {
             updateForegroundState(true)
         }
-        app.onCreate()
 
 
     }
@@ -671,25 +649,13 @@ class MainService : LocalService() {
 
 
     override fun onDestroy() {
-        app.onDestroy()
-        if (TinyDB(this).getBoolean("foreground_service_and_notification_switch")) {
+        if (app.prefs.get("foreground_service_and_notification_switch", true)) {
             updateForegroundState(false)
         }
+        app.onDestroy()
 
         super.onDestroy()
     }
-
-//    override fun onRebind(intent: Intent) {
-//        super.onRebind(intent)
-//        app.onRebind(intent)
-//
-//    }
-
-//    override fun onUnbind(intent: Intent): Boolean {
-//        return app.onUnbind(intent)
-//    }
-//
-
 }
 
 

@@ -70,13 +70,9 @@
         </receiver>
 
         <service
-            android:name="saffih.elmdroid.gps.GpsService"
-            android:enabled="true"
-            android:exported="true" />
-        <service
             android:name=".service.MainService"
             android:enabled="true"
-            android:exported="true" />
+            android:exported="false" />
 
         <activity
             android:name=".settings.SettingsActivity"

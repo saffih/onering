@@ -7,25 +7,19 @@ package saffih.onering.mylocation
 //import saffih.onering.gps.toApi
 
 // get the extension methods
-import android.Manifest
-import android.content.Context
 import android.location.Location
 import android.os.Bundle
 import android.support.v4.app.FragmentActivity
 import com.google.android.gms.maps.*
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
-import saffih.elmdroid.ElmBase
-import saffih.elmdroid.Que
-import saffih.elmdroid.activityCheckForPermission
-import saffih.elmdroid.gps.GpsService
-import saffih.elmdroid.gps.toApi
-import saffih.elmdroid.gps.toMessage
-import saffih.elmdroid.service.client.ElmMessengerServiceClient
-import saffih.elmdroid.service.client.MService
+import saffih.elmdroid.ElmMachine
+import saffih.elmdroid.checkView
+import saffih.elmdroid.gps.child.LocationRegisterHelper
 import saffih.onering.R
+import saffih.tools.post
 
-typealias GpsMsgApi = saffih.elmdroid.gps.child.Msg.Api
+//typealias GpsMsgApi = saffih.elmdroid.child.Msg.Api
 
 class LocationActivity : FragmentActivity() {
 
@@ -40,19 +34,6 @@ class LocationActivity : FragmentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        app.onCreate()
-    }
-
-    override fun onStop() {
-        app.onDestroy()
-        super.onStop()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-    }
 }
 
 sealed class Msg {
@@ -65,7 +46,7 @@ sealed class Msg {
             class MoveCamera(val cameraUpdate: CameraUpdate) : Map()
         }
 
-        class FirstRequest : Activity()
+        //        class FirstRequest : Activity()
         class GotLocation(val location: Location) : Activity()
 
     }
@@ -83,94 +64,75 @@ data class MMap(val googleMap: GoogleMap? = null,
                 val markers: Set<MarkerOptions> = setOf<MarkerOptions>(),
                 val camera: CameraUpdate? = null)
 
-class LocationApp(override val me: FragmentActivity) : ElmBase<Model, Msg>(me), OnMapReadyCallback {
-    inner class GpsElmRemoteServiceClient(me: Context) :
-            ElmMessengerServiceClient<GpsMsgApi>(me, javaClassName = GpsService::class.java,
-                    toApi = { it.toApi() },
-                    toMessage = { it.toMessage() }) {
-
-        override fun onAPI(msg: GpsMsgApi) {
-            when (msg) {
-                is saffih.elmdroid.gps.child.Msg.Api.Reply.NotifyLocation ->
-                    post { dispatch(Msg.Activity.GotLocation(msg.location)) }
-            }
-        }
-
-        override fun onConnected(msg: MService) {
-            post { dispatch(Msg.Activity.FirstRequest()) }
+class LocationApp(val me: LocationActivity) : ElmMachine<Model, Msg>(), OnMapReadyCallback {
+    val locationBind = object : LocationRegisterHelper(me) {
+        override fun onLocationChanged(loc: Location) {
+            dispatch(Msg.Activity.GotLocation(loc))
+            unregister()
         }
     }
 
-    val gps = GpsElmRemoteServiceClient(me)
     override fun onCreate() {
         super.onCreate()
-        // Bind to the service
-        gps.onCreate()
+        locationBind.register()
     }
 
     override fun onDestroy() {
-        // Unbind from the service
-        gps.onDestroy()
+        locationBind.unregister()
         super.onDestroy()
     }
 
-    override fun init() = ret(Model(), Msg.Init)
+    override fun init(): Model {
+        dispatch(Msg.Init)
+        return Model()
+    }
 
-    override fun update(msg: Msg, model: Model): Pair<Model, Que<Msg>> {
+    override fun update(msg: Msg, model: Model): Model {
         return when (msg) {
             is Msg.Init -> {
-                ret(model)
+                model
             }
             is Msg.Activity -> {
-                val (activityModel, que) =
-                        update(msg, model.activity)
-                ret(model.copy(activity = activityModel), que)
+                val activityModel = update(msg, model.activity)
+                model.copy(activity = activityModel)
             }
         }
     }
 
-    fun update(msg: Msg.Activity, model: MActivity): Pair<MActivity, Que<Msg>> {
+    fun update(msg: Msg.Activity, model: MActivity): MActivity {
         return when (msg) {
             is Msg.Activity.Map -> {
-                val (mapModel, que) = update(msg, model.mMap)
-                ret(model.copy(mMap = mapModel), que)
+                val mapModel = update(msg, model.mMap)
+                model.copy(mMap = mapModel)
             }
             is Msg.Activity.GotLocation -> {
-                val here = LatLng(msg.location.latitude, msg.location.longitude)
-
-                val que = listOf(
-                        Msg.Activity.Map.AddMarker(MarkerOptions().position(here).title("you are here")),
-                        Msg.Activity.Map.MoveCamera(CameraUpdateFactory.newLatLngZoom(here, 15.0f)))
-                ret(model, que)
-            }
-            is Msg.Activity.FirstRequest -> {
-                val perm = Manifest.permission.ACCESS_FINE_LOCATION
-                val code = 1
-                if (activityCheckForPermission(me, perm, code)) {
-                    gps.request(saffih.elmdroid.gps.child.Msg.Api.Request.Location())
-                    ret(model)
-                } else {
-                    ret(model, msg)
-                }
+                val m = update(msg, model.mMap)
+                model.copy(mMap = m)
             }
         }
     }
 
-    fun update(msg: Msg.Activity.Map, model: MMap): Pair<MMap, Que<Msg>> {
+    private fun update(msg: Msg.Activity.GotLocation, model: MMap): MMap {
+        val here = LatLng(msg.location.latitude, msg.location.longitude)
+        val marker = MarkerOptions().position(here).title("you are here")
+        val moveCam = CameraUpdateFactory.newLatLngZoom(here, 15.0f)
+        return model.copy(markers = model.markers + marker, camera = moveCam)
+    }
+
+    fun update(msg: Msg.Activity.Map, model: MMap): MMap {
         return when (msg) {
 
             is Msg.Activity.Map.Ready -> {
-                ret(model.copy(googleMap = msg.googleMap))
+                model.copy(googleMap = msg.googleMap)
             }
             is Msg.Activity.Map.AddMarker -> {
-                ret(model.copy(markers = model.markers + msg.markerOptions))
+                model.copy(markers = model.markers + msg.markerOptions)
 
             }
             is Msg.Activity.Map.MoveCamera -> {
-                ret(model.copy(camera = msg.cameraUpdate))
+                model.copy(camera = msg.cameraUpdate)
             }
         }
-
     }
 
     override fun view(model: Model, pre: Model?) {
@@ -196,15 +158,22 @@ class LocationApp(override val me: FragmentActivity) : ElmBase<Model, Msg>(me), 
             mapFragment.getMapAsync(this)
         }
         checkView(setup, model, pre) {
+            val ui = model.googleMap?.uiSettings
+            if (ui != null) {
+                ui.isCompassEnabled = true
+                ui.isZoomControlsEnabled = true
+                ui.isMyLocationButtonEnabled = true
+                ui.setAllGesturesEnabled(true)
+            }
             checkView({}, model.markers, pre?.markers) {
-                post {
+                me.post {
                     model.markers.forEach {
                         model.googleMap?.addMarker(it)
                     }
                 }
             }
             checkView({}, model.camera, pre?.camera) {
-                post {
+                me.post {
                     model.googleMap?.moveCamera(model.camera)
                 }
             }

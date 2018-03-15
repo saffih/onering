@@ -8,21 +8,23 @@ import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.support.annotation.RequiresApi
+import android.support.v4.app.ActivityCompat
 import android.support.v7.app.AppCompatActivity
 import android.view.Menu
 import android.view.MenuItem
-import saffih.elmdroid.activityCheckForPermission
+import saffih.tools.toast
 
 class OneRingActivity : AppCompatActivity() {
     val app = OneRingElm(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        checkPermission(4)
+        checkPermission()
         app.onCreate()
     }
 
@@ -70,36 +72,78 @@ class OneRingActivity : AppCompatActivity() {
     }
 
     fun requestNotificationPolicyAccess() {
+        val perms: List<String>
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            perms = listOf(Manifest.permission.ACCESS_NOTIFICATION_POLICY)
+            ActivityCompat.requestPermissions(this,
+                    perms.toTypedArray(), PermCode.NOTIFICATION.ordinal)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !isNotificationPolicyAccessGranted()) {
             val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
             startActivity(intent)
         }
     }
 
-    fun checkPermission(code: Int = 1) {
-        val me = this
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val lst = listOf(Manifest.permission.RECEIVE_BOOT_COMPLETED,
-                    Manifest.permission.RECEIVE_SMS,
-                    Manifest.permission.READ_SMS,
-                    Manifest.permission.SEND_SMS,
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_NOTIFICATION_POLICY
-            )
-            activityCheckForPermission(lst, code)
-//            me.requestPermissions(lst.toTypedArray(), code)
+
+    enum class PermCode {
+        ZERO,
+        ALL,
+        NOTIFICATION;
+
+        companion object {
+            fun fromId(id: Int): PermCode? {
+                if (id <= 0) return null
+                if (id >= values().size) return null
+                return values().get(id)
+            }
         }
-//        ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_BOOT_COMPLETED)
-//        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-//        ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
-//        ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
-//        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_NOTIFICATION_POLICY)
-//        activityCheckForPermission(me, Manifest.permission.RECEIVE_BOOT_COMPLETED, code)
-//            activityCheckForPermission(me, "android.permission.WRITE_EXTERNAL_STORAGE", 1)
-//        SMSReceiverAdapter.checkPermission(me, code)
-//        LocationAdapter.checkPermission(me, code)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (PermCode.fromId(requestCode)) {
+            OneRingActivity.PermCode.ZERO -> {
+                //never
+            }
+            OneRingActivity.PermCode.ALL -> {
+                onALLRequestPermissionsResult(permissions, grantResults)
+            }
+            OneRingActivity.PermCode.NOTIFICATION -> {
+                onNotificationRequestPermissionsResult(permissions, grantResults)
+            }
+            null -> {
+            }
+        }
+    }
+
+    val requiredPerms = listOf(Manifest.permission.RECEIVE_BOOT_COMPLETED,
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.READ_SMS,
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.MODIFY_AUDIO_SETTINGS
+    )
+
+    private fun onALLRequestPermissionsResult(permissions: Array<out String>, grantResults: IntArray) {
+        val res = grantResults.zip(permissions).filter { it.first != PackageManager.PERMISSION_GRANTED }
+        if (res.isNotEmpty()) {
+            toast("Lack Permissions: " + res.map { it.second }.joinToString())
+        }
+    }
+
+
+    private fun onNotificationRequestPermissionsResult(permissions: Array<out String>, grantResults: IntArray) {
+        val res = grantResults.zip(permissions).filter { it.first != PackageManager.PERMISSION_GRANTED }
+        if (res.isNotEmpty()) {
+            toast("Lack Permissions: " + res.map { it.second }.joinToString())
+        }
+    }
+
+
+    fun checkPermission() {
+        val me = this
+        ActivityCompat.requestPermissions(this, requiredPerms.toTypedArray(), PermCode.ALL.ordinal)
         me.requestNotificationPolicyAccess()
-//        activityCheckForPermission(me, "android.permission.ACTION_NOTIFICATION_POLICY_ACCESS_GRANTED_CHANGED", code)
     }
 
     companion object

@@ -24,12 +24,10 @@ import android.app.ActivityManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.Handler
-import android.os.IBinder
-import android.os.Message
-import android.os.Messenger
+import android.os.*
 import android.widget.Toast
-import saffih.elmdroid.ElmBase
+import saffih.elmdroid.ElmMachine
+import saffih.tools.post
 
 
 /**
@@ -50,14 +48,14 @@ fun Context.isServiceRunning(serviceClass: Class<*>): Boolean {
 
 
 abstract class ElmMessengerService<M, MSG, API : MSG>(
-        override val me: Service,
+        val me: Service,
         val toMessage: (API) -> Message,
         val toApi: (Message) -> API, val debug: Boolean = false) :
-        ElmBase<M, MSG>(me) {
+        ElmMachine<M, MSG>() {
 
     fun toast(txt: String, duration: Int = Toast.LENGTH_SHORT) {
         if (!debug) return
-        post({ Toast.makeText(me, txt, duration).show() })
+        me.post({ Toast.makeText(me, txt, duration).show() })
     }
 
     override fun view(model: M, pre: M?) {
@@ -140,10 +138,19 @@ abstract class ElmMessengerService<M, MSG, API : MSG>(
                     startIntent.putExtra("MESSENGER", messenger)
                 }
                 receiver(startIntent)
-                context.startService(startIntent)
+                startService(context, startIntent)
                 return true
             } else
                 return false
+        }
+
+        private fun startService(context: Context, startIntent: Intent) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(startIntent)
+            } else {
+                context.startService(startIntent)
+
+            }
         }
     }
 }

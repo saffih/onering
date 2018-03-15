@@ -6,34 +6,29 @@ package saffih.onering.settings
 
 
 import android.annotation.TargetApi
-import android.app.Activity
 import android.app.Activity.RESULT_OK
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.os.Message
 import android.preference.Preference
 import android.preference.PreferenceActivity
 import android.preference.PreferenceFragment
-import android.preference.PreferenceScreen
 import android.provider.ContactsContract
 import android.support.v4.app.NavUtils
 import android.view.MenuItem
-import saffih.elmdroid.ElmBase
-import saffih.elmdroid.Que
-import saffih.elmdroid.bindState
-import saffih.elmdroid.post
-import saffih.elmdroid.service.client.ElmMessengerServiceClient
-import saffih.elmdroid.service.client.MService
+import saffih.elmdroid.ElmMachine
+import saffih.elmdroid.checkView
+import saffih.elmdroid.service.LocalServiceClient
 import saffih.onering.MainMsgApi
 import saffih.onering.R
 import saffih.onering.service.MainService
 import saffih.onering.service.phoneFormat
-import saffih.onering.service.toApi
-import saffih.onering.service.toMessage
 import saffih.onering.settings.allowed.ElmPreferenceSettings
 import saffih.tools.AppCompatPreferenceActivity
+import saffih.tools.post
 import saffih.onering.settings.allowed.Model as AllowedModel
 import saffih.onering.settings.allowed.Msg as AllowedMsg
 
@@ -68,34 +63,25 @@ enum class SettingsActionResult {
 }
 
 
-class AppSettings(override val me: Activity) : ElmBase<Model, Msg>(me) {
+class AppSettings(val me: SettingsActivity) : ElmMachine<Model, Msg>() {
     inner class MainsElmRemoteServiceClient(me: Context) :
-            ElmMessengerServiceClient<MainMsgApi>(me, javaClassName = MainService::class.java,
-                    toApi = { it.toApi() },
-                    toMessage = { it.toMessage() }) {
-
-        override fun onAPI(msg: MainMsgApi) {
-            when (msg) {
-                is saffih.onering.service.Msg.Api.Request.ConfChange -> {
-//                    toast("${msg}")
-                }
-            }
-        }
-
-        override fun onConnected(msg: MService) {
-            super.onConnected(msg)
+            LocalServiceClient<MainService>(me, localserviceJavaClass = MainService::class.java) {
+        override fun onReceive(payload: Message?) {
 
         }
 
         fun updateForegroundNotification() {
-            request(MainMsgApi.updateForegroundNotification())
+            bound?.app?.dispatch(MainMsgApi.updateForegroundNotification())
         }
     }
 
     val mainServiceClient = MainsElmRemoteServiceClient(me)
 
 
-    private val allowedApp = bindState(object : ElmPreferenceSettings(me) {
+    private val allowedApp = object : ElmPreferenceSettings(me) {
+        override fun handleMSG(cur: saffih.onering.settings.allowed.Msg) {
+            dispatch(Msg.Child.Allowed(cur))
+        }
 //        override fun allowChanged() {
 //            mainServiceClient.request(MainMsgApi.settingsChange)
 //        }
@@ -104,36 +90,36 @@ class AppSettings(override val me: Activity) : ElmBase<Model, Msg>(me) {
 //            postDispatch(Msg.Child.Allowed(edited))
 //        }
 
-    }) { Msg.Child.Allowed(it) }
+    }
 
-    override fun init(): Pair<Model, Que<Msg>> = ret(Model())
+    override fun init() = Model()
 
-    override fun update(msg: Msg, model: Model): Pair<Model, Que<Msg>> {
+    override fun update(msg: Msg, model: Model): Model {
         return when (msg) {
             is Msg.Options -> {
-                val (m, c) = update(msg, model.options)
-                ret(model.copy(options = m), c)
+                val m = update(msg, model.options)
+                model.copy(options = m)
             }
             is Msg.Init.Allowed -> {
-                val (m, c) = allowedApp.update(AllowedMsg.init(msg.fragment), model.allowed)
-                ret(model.copy(allowed = m), c)
+                val m = allowedApp.update(AllowedMsg.init(msg.fragment), model.allowed)
+                model.copy(allowed = m)
 
             }
             is Msg.Child.Allowed -> {
-                val (m, c) = allowedApp.update(msg.smsg, model.allowed)
-                ret(model.copy(allowed = m), c)
+                val m = allowedApp.update(msg.smsg, model.allowed)
+                model.copy(allowed = m)
             }
         }
     }
 
-    private fun update(msg: Msg.Options, model: MOptions): Pair<MOptions, Que<Msg>> {
+    private fun update(msg: Msg.Options, model: MOptions): MOptions {
         return when (msg) {
-            is Msg.Options.MenuItemSelected -> ret(model)
+            is Msg.Options.MenuItemSelected -> model
             is Msg.Options.UnhandledMenuItemSelected -> {
                 if (msg.item.itemId == android.R.id.home) {
                     NavUtils.navigateUpFromSameTask(me)
                 }
-                ret(model)
+                model
             }
         }
     }
@@ -141,7 +127,7 @@ class AppSettings(override val me: Activity) : ElmBase<Model, Msg>(me) {
     override fun view(model: Model, pre: Model?) {
         val setup = {}
         checkView(setup, model, pre) {
-            allowedApp.impl.view(model.allowed, pre?.allowed)
+            allowedApp.view(model.allowed, pre?.allowed)
         }
 
     }
@@ -291,9 +277,6 @@ class Fragments {
      */
     @TargetApi(Build.VERSION_CODES.HONEYCOMB)
     class GeneralPreferenceFragment : PreferenceFragment() {
-        override fun onPreferenceTreeClick(preferenceScreen: PreferenceScreen?, preference: Preference?): Boolean {
-            return super.onPreferenceTreeClick(preferenceScreen, preference)
-        }
 
         // The request code
         // Show user only contacts w/ phone numbers
@@ -333,9 +316,6 @@ class Fragments {
 
     @TargetApi(Build.VERSION_CODES.HONEYCOMB)
     class OptionsPreferenceFragment : PreferenceFragment() {
-        override fun onPreferenceTreeClick(preferenceScreen: PreferenceScreen?, preference: Preference?): Boolean {
-            return super.onPreferenceTreeClick(preferenceScreen, preference)
-        }
 
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)

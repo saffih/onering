@@ -8,6 +8,9 @@ import android.content.ContentValues
 import android.content.Context
 import saffih.tools.DatabaseHandler
 
+/**
+ * Model for Allowed view
+ */
 data class MAllowed(val ROWID: Int? = null, val name: String)
 
 abstract class DBHelper<T>(context: Context) : DatabaseHandler<T>(context, "onering.db", 1)
